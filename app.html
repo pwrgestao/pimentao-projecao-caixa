@@ -82,6 +82,16 @@ table.proj thead th{background:var(--navy);color:var(--navy-fg);font-weight:600;
 table.proj thead th .wd{display:block;font-family:var(--f-label);font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:.06em}
 table.proj td:first-child,table.proj th:first-child{position:sticky;left:0;background:var(--surface);z-index:1;min-width:230px;white-space:normal}
 table.proj thead th:first-child{background:var(--navy)}
+table.proj.lado td.rl,table.proj.lado th.rl{background:color-mix(in srgb,var(--surface2) 70%,transparent);border-right:1px solid var(--line)}
+table.proj.lado thead tr.sub2 th{font-size:10px;font-family:var(--f-label);text-transform:uppercase;letter-spacing:.06em;font-weight:700;padding-top:3px;padding-bottom:3px;background:var(--deep);color:var(--navy-fg)}
+table.proj.lado thead tr.sub2 th.rl{background:var(--deep);opacity:.9}
+table.proj.lado thead th{position:static}
+table.proj.lado thead tr:first-child th:first-child{position:sticky;left:0;z-index:2}
+table.proj.lado thead tr.sub2 th:first-child{min-width:0;white-space:nowrap}
+button.tg{all:unset;cursor:pointer;display:inline-block;width:18px;text-align:center;margin-right:4px;font-size:12px;transition:transform .15s}
+button.tg[aria-expanded="false"]{transform:rotate(-90deg)}
+button.tg:focus-visible{outline:2px solid #fff;outline-offset:1px;border-radius:3px}
+tr.tot button.tg:focus-visible{outline-color:var(--navy)}
 tr.sec td{background:var(--accent);color:#fff;font-weight:700;font-family:var(--f-label);letter-spacing:.04em;text-transform:uppercase;font-size:12px}
 tr.sec td:first-child{background:var(--accent)}
 tr.tot td{font-weight:700;background:var(--surface2)}
@@ -92,6 +102,8 @@ tr.saldo td:first-child{background:var(--deep)}
 tr.sub td{color:var(--muted);font-size:12px}
 td.neg{color:var(--neg)}
 tr.saldo td.neg{background:var(--neg);color:#fff}
+table.proj.lado tr.saldo td.rl{background:var(--surface2);color:var(--fg);border-top:2px solid var(--deep);border-bottom:2px solid var(--deep)}
+table.proj.lado tr.saldo td.rl.neg{color:var(--neg)}
 td.zero{color:var(--muted)}
 td.flag{background:var(--accent-soft);color:var(--accent);font-weight:700}
 td input.cell{width:100px;text-align:right;padding:3px 6px}
@@ -269,7 +281,7 @@ const S={
   recebidos:{dias:{},arquivos:[]},pagos:{dias:{},arquivos:[]},saldos:{dias:{},arquivos:[]},orcamento:{cmv:0.63,fat:{},compras:{},meses:{}},mov:{},compras:{},controle:{},pagarMeta:{chunks:0},pagarChunks:{},
 };
 let db=null, canWrite=true, loaded={cfg:false,base:false,pagar:false};
-const UI={ordTit:(()=>{try{return JSON.parse(tryLS('pp_ordtit')||'null');}catch(e){return null;}})(),tab:tryLS('pp_tab')||'semana',semana:monday(todayIso()),diaSel:null,filtroTit:'todos',diaTit:0,mes:null};
+const UI={fold:(()=>{try{return JSON.parse(tryLS('pp_fold')||'{}')||{};}catch(e){return {};}})(),ordTit:(()=>{try{return JSON.parse(tryLS('pp_ordtit')||'null');}catch(e){return null;}})(),tab:tryLS('pp_tab')||'semana',semana:monday(todayIso()),diaSel:null,filtroTit:'todos',diaTit:0,mes:null};
 
 // ---------------- persistência ----------------
 const queues={}, timers={};
@@ -468,37 +480,53 @@ function render(){
   if(!Object.keys(S.recebidos.dias||{}).length&&!(S.pagarMeta.chunks)&&loaded.base) showBanner('Ainda não há dados. Abra “Importar e configurar” e anexe o contas a pagar e o histórico de contas recebidas.');
 }
 function cls(v,extra){return [v<-0.005?'neg':'',Math.abs(v)<0.005?'zero':'',extra||''].join(' ').trim();}
+const SEM_GRUPO='Sem grupo identificado (importação antiga — reimporte as contas pagas)';
+// pagamentos realizados do dia por grupo (pelo plano de contas guardado na importação das contas pagas)
+function pagRealGrupos(d){
+  const doc=(S.mov||{})['pag-'+monday(d)];if(!doc||!doc.t)return null;const dep=S.depara.map||{},out={};let tem=false;
+  Object.entries(doc.t).forEach(([k,v])=>{if(k.slice(k.lastIndexOf('|')+1)!==d)return;tem=true;const pl=((doc.p||{})[k]||'').toUpperCase().trim();
+    const g=pl?(dep[pl]||'Outros'):SEM_GRUPO;out[g]=(out[g]||0)+(+v||0);});
+  return tem?out:null;
+}
 function projTable(P,opts){
-  const C=P.cols, G=grupos(), weekly=opts.weekly;
-  const td=(v,c)=>`<td class="${cls(v,c)}">${fmt(v)}</td>`;
-  const row=(label,f,k,total)=>`<tr class="${k||''}"><td>${label}</td>${C.map(c=>td(f(c))).join('')}<td>${total===false?'':fmt(C.reduce((s,c)=>s+(f(c)||0),0))}</td></tr>`;
-  const inRow=(label,map,key,total)=>`<tr><td>${label}</td>${C.map(c=>`<td><input class="in cell" data-map="${map}" data-d="${c.d}" inputmode="decimal" value="${(S.geral[map]||{})[c.d]!=null&&(S.geral[map]||{})[c.d]!==''?(+(S.geral[map][c.d])).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" aria-label="${label} ${br(c.d)}"></td>`).join('')}<td>${total===false?'':fmt(C.reduce((s,c)=>s+(+(S.geral[map]||{})[c.d]||0),0))}</td></tr>`;
-  let h=`<div class="scroll"><table class="proj"><thead><tr><th>Classificação</th>${C.map(c=>`<th class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`).join('')}<th>Total</th></tr></thead><tbody>`;
-  h+=`<tr class="key"><td>Saldo inicial do dia</td>${C.map(c=>td(c.ini)).join('')}<td></td></tr>`;
-  h+=`<tr class="sec"><td>Recebimentos</td>${C.map(()=>'<td></td>').join('')}<td></td></tr>`;
-  h+=row('Média das contas recebidas na mesma ocorrência do dia da semana (últimos meses)',c=>c.recP);
-  h+=inRow('Ajuste manual de recebimentos (+/−)','ajRec');
-  h+=row('Total de recebimentos previstos',c=>c.recT,'tot');
-  h+=`<tr class="sec"><td>Pagamentos por grupo</td>${C.map(()=>'<td></td>').join('')}<td></td></tr>`;
-  G.forEach(g=>{const tot=C.reduce((s,c)=>s+(c.g[g]||0),0);if(tot>0.005||g!=='Outros')h+=row(g,c=>c.g[g]||0);});
-  h+=inRow('Ajuste manual de pagamentos (+/−)','ajPag');
-  h+=row('Total de pagamentos previstos',c=>c.pagT,'tot');
-  h+=row('dos quais: contas a pagar (sistema)',c=>c.cp,'sub');
-  h+=row('dos quais: orçado recorrente',c=>c.rec,'sub');
-  h+=row('dos quais: lançamentos manuais',c=>c.man,'sub');
-  if(weekly)h+=row('inclui atrasados lançados na segunda',c=>c.atras,'sub');
-  h+=row('Movimento do dia (receb. − pag.)',c=>c.mov,'key');
-  h+=`<tr class="saldo"><td>Saldo final projetado</td>${C.map(c=>td(c.fim)).join('')}<td class="${cls(C[C.length-1].fim)}">${fmt(C[C.length-1].fim)}</td></tr>`;
-  h+=`<tr class="sec"><td>Alertas</td>${C.map(()=>'<td></td>').join('')}<td></td></tr>`;
-  h+=`<tr><td>Títulos a mover para terça ou sexta</td>${C.map(c=>`<td class="${c.moverN?'flag':'zero'}">${c.moverN?c.moverN+' · '+fmt0(c.moverV):'–'}</td>`).join('')}<td>${C.reduce((s,c)=>s+c.moverN,0)||'–'}</td></tr>`;
-  h+=`<tr class="sec"><td>Verificação — realizado x projetado</td>${C.map(()=>'<td></td>').join('')}<td></td></tr>`;
-  h+=`<tr><td>Contas recebidas realizado</td>${C.map(c=>c.recReal==null?'<td class="zero">·</td>':td(c.recReal)).join('')}<td>${fmt(C.reduce((s,c)=>s+(c.recReal||0),0))}</td></tr>`;
-  h+=`<tr class="sub"><td>diferença x histórico projetado</td>${C.map(c=>c.recReal==null?'<td></td>':td(c.recReal-c.recP)).join('')}<td></td></tr>`;
-  h+=`<tr><td>Pago realizado (contas pagas)</td>${C.map(c=>c.pagReal==null?'<td class="zero">·</td>':td(c.pagReal)).join('')}<td>${fmt(C.reduce((s,c)=>s+(c.pagReal||0),0))}</td></tr>`;
-  h+=`<tr class="sub"><td>diferença pago x previsto</td>${C.map(c=>c.pagReal==null?'<td></td>':td(c.pagReal-c.pagT)).join('')}<td></td></tr>`;
-  h+=inRow('Dinheiro em espécie do dia (informar)','dinheiro',null,false);
-  h+=`<tr class="key"><td>Saldo registrado (planilha de saldo + espécie) — vira o saldo inicial do dia</td>${C.map(c=>c.saldoReal==null?'<td class="zero">·</td>':td(c.saldoReal)).join('')}<td></td></tr>`;
-  h+=`<tr class="sub"><td>diferença saldo registrado x projetado para o início do dia</td>${C.map(c=>c.saldoReal==null?'<td></td>':td(c.saldoReal-c.iniProj)).join('')}<td></td></tr>`;
+  const C=P.cols, G=grupos(), weekly=opts.weekly, F=UI.fold||{};
+  const hoje=todayIso();
+  const RG=C.map(c=>c.d<=hoje?pagRealGrupos(c.d):null);
+  const nul=v=>v==null;
+  const tdO=(v,c)=>`<td class="${cls(v,c)}">${fmt(v)}</td>`;
+  const tdR=(v,c)=>nul(v)?`<td class="rl zero">·</td>`:`<td class="rl ${cls(v,c)}">${fmt(v)}</td>`;
+  const sumR=a=>a.some(x=>!nul(x))?a.reduce((s,x)=>s+(x||0),0):null;
+  // linha: f = orçado do dia, r = realizado do dia (null = sem dado)
+  const row=(label,f,r,k,g,total)=>{const R=C.map((c,i)=>r?r(c,i):null);
+    const tdX=v=>r?tdR(v):'<td class="rl"></td>';
+    return `<tr class="${k||''}" ${g&&F[g]?'hidden':''}><td>${label}</td>${C.map((c,i)=>tdO(f(c))+tdX(R[i])).join('')}${total===false?'<td></td><td class="rl"></td>':tdO(C.reduce((s,c)=>s+(f(c)||0),0))+tdX(r?sumR(R):null)}</tr>`;};
+  const inRow=(label,map,g,real)=>{const val=d=>(S.geral[map]||{})[d];const inp=c=>`<input class="in cell" data-map="${map}" data-d="${c.d}" inputmode="decimal" value="${val(c.d)!=null&&val(c.d)!==''?(+val(c.d)).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" aria-label="${label} ${br(c.d)}">`;
+    return `<tr ${g&&F[g]?'hidden':''}><td>${label}</td>${C.map(c=>real?`<td class="zero"></td><td class="rl">${inp(c)}</td>`:`<td>${inp(c)}</td><td class="rl zero"></td>`).join('')}<td>${real?'':fmt(C.reduce((s,c)=>s+(+val(c.d)||0),0))}</td><td class="rl"></td></tr>`;};
+  const tg=(k,label)=>`<button class="tg" data-fold="${k}" aria-expanded="${!F[k]}" title="${F[k]?'Mostrar':'Ocultar'} detalhes">▾</button>${label}`;
+  const sec=(label,k)=>`<tr class="sec"><td>${k?tg(k,label):label}</td>${C.map(()=>'<td></td><td></td>').join('')}<td></td><td></td></tr>`;
+  let h=`<div class="scroll"><table class="proj lado"><thead><tr><th rowspan="2">Classificação</th>${C.map(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`).join('')}<th colspan="2">Total</th></tr>
+   <tr class="sub2">${C.map(()=>'<th>Orçado</th><th class="rl">Realizado</th>').join('')}<th>Orçado</th><th class="rl">Realizado</th></tr></thead><tbody>`;
+  h+=`<tr class="key"><td>Saldo inicial do dia</td>${C.map(c=>tdO(c.ini)+tdR(c.saldoReal)).join('')}<td></td><td class="rl"></td></tr>`;
+  h+=inRow('Dinheiro em espécie do dia (informar no realizado)','dinheiro',null,true);
+  h+=row('diferença saldo registrado x projetado para o início do dia',c=>0,(c)=>c.saldoReal==null?null:c.saldoReal-c.iniProj,'sub',null,false).replace(/<td class="zero">–<\/td>/g,'<td></td>');
+  h+=sec('Recebimentos','rec');
+  h+=row('Média das contas recebidas na mesma ocorrência do dia da semana (últimos meses)',c=>c.recP,c=>c.recReal,null,'rec');
+  h+=inRow('Ajuste manual de recebimentos (+/−)','ajRec','rec');
+  h+=row('Total de recebimentos',c=>c.recT,c=>c.recReal,'tot');
+  h+=sec('Pagamentos por grupo','pag');
+  const temSem=RG.some(x=>x&&x[SEM_GRUPO]);
+  G.forEach(g=>{const tot=C.reduce((s,c)=>s+(c.g[g]||0),0)+RG.reduce((s,x)=>s+((x&&x[g])||0),0);if(tot>0.005||g!=='Outros')h+=row(g,c=>c.g[g]||0,(c,i)=>RG[i]?(RG[i][g]||0):null,null,'pag');});
+  if(temSem)h+=row(SEM_GRUPO,c=>0,(c,i)=>RG[i]?(RG[i][SEM_GRUPO]||0):null,'sub','pag');
+  h+=inRow('Ajuste manual de pagamentos (+/−)','ajPag','pag');
+  h+=`<tr class="tot"><td>${tg('tot','Total de pagamentos')}</td>${C.map(c=>tdO(c.pagT)+tdR(c.pagReal)).join('')}${tdO(C.reduce((s,c)=>s+c.pagT,0))}${tdR(sumR(C.map(c=>c.pagReal)))}</tr>`;
+  h+=row('dos quais: contas a pagar (sistema)',c=>c.cp,null,'sub','tot');
+  h+=row('dos quais: orçado recorrente',c=>c.rec,null,'sub','tot');
+  h+=row('dos quais: lançamentos manuais',c=>c.man,null,'sub','tot');
+  if(weekly)h+=row('inclui atrasados lançados na segunda',c=>c.atras,null,'sub','tot');
+  h+=row('Movimento do dia (receb. − pag.)',c=>c.mov,c=>(c.recReal==null&&c.pagReal==null)?null:(c.recReal||0)-(c.pagReal||0),'key');
+  h+=`<tr class="saldo"><td>Saldo final do dia</td>${C.map(c=>tdO(c.fim)+tdR(saldoReal(add(c.d,1)))).join('')}${tdO(C[C.length-1].fim)}${tdR(saldoReal(add(C[C.length-1].d,1)))}</tr>`;
+  h+=sec('Alertas');
+  h+=`<tr><td>Títulos a mover para terça ou sexta</td>${C.map(c=>`<td class="${c.moverN?'flag':'zero'}">${c.moverN?c.moverN+' · '+fmt0(c.moverV):'–'}</td><td class="rl"></td>`).join('')}<td>${C.reduce((s,c)=>s+c.moverN,0)||'–'}</td><td class="rl"></td></tr>`;
   return h+'</tbody></table></div>';
 }
 function kpis(P){
@@ -542,7 +570,7 @@ function mensaisPanel(P){
 function vSemana(P){
   const sel=UI.diaSel&&P.cols.find(c=>c.d===UI.diaSel);
   return `<div class="wrap" style="gap:16px">${kpis(P)}
-  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · amarelo = digitável</span></div>${projTable(P,{weekly:true})}</section>
+  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${projTable(P,{weekly:true})}</section>
   ${sel?`<section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos de ${DNL[wd(sel.d)]}, ${brY(sel.d)}</h2><button class="sm" data-act="fechaDia">Fechar</button></div>${dayBlock(sel,{marks:true})}</section>`:''}
   <div class="grid2">${partidaPanel()}${mensaisPanel(P)}</div></div>`;
 }
@@ -777,10 +805,10 @@ function tabela(rows){
   return {H,col,data};
 }
 function estabsDe(data,get){return [...new Set(data.map(r=>String(get(r,'Estabelecimento')).trim()).filter(Boolean))];}
-function ledgerMerge(kind,fm,de,ate){
+function ledgerMerge(kind,fm,de,ate,pm){
   S.mov=S.mov||{};let novas=0,repetidas=0;const tocados=new Set();
   for(const [k,v] of Object.entries(fm)){const d=k.slice(k.lastIndexOf('|')+1),id=kind+'-'+monday(d);const doc=(S.mov[id]=S.mov[id]||{t:{}});doc.t=doc.t||{};
-    if(doc.t[k]!=null)repetidas++;else novas++;doc.t[k]=v;tocados.add(id);}
+    if(doc.t[k]!=null)repetidas++;else novas++;doc.t[k]=v;if(pm&&pm[k]){doc.p=doc.p||{};doc.p[k]=pm[k];}tocados.add(id);}
   tocados.forEach(id=>persist('mov/'+id,150));
   const base=S[kind==='rec'?'recebidos':'pagos'];base.dias=base.dias||{};const soma={};
   Object.entries(S.mov).forEach(([id,doc])=>{if(!id.startsWith(kind+'-'))return;Object.entries((doc&&doc.t)||{}).forEach(([k,v])=>{const d=k.slice(k.lastIndexOf('|')+1);if(d>=de&&d<=ate)soma[d]=(soma[d]||0)+v;});});
@@ -827,12 +855,12 @@ async function importar(files){
       if(isRec||pagosN>data.length*0.5){
         // movimentações realizadas: guardadas uma a uma (Ident. + data), então a mesma movimentação vinda da loja e do atacado conta uma vez só
         const key=isRec?'recebidos':'pagos', kind=isRec?'rec':'pag';
-        const fm={};let de=null,ate=null,n=0;
+        const fm={},pm={};let de=null,ate=null,n=0;
         data.forEach((r,ix)=>{if(String(get(r,'Situação')).trim()==='Estornada')return;const d=toIso(get(r,'Pagamento'));const v=pnum(get(r,'Pago'));if(!d||isNaN(v))return;
           const id=String(get(r,'Ident.')).trim()||('~'+[get(r,'Participante'),get(r,'Documento'),get(r,'NSU'),get(r,'Pago'),ix].join('~'));
-          const k=id+'|'+d; fm[k]=Math.round(((fm[k]||0)+v)*100)/100; n++; if(!de||d<de)de=d; if(!ate||d>ate)ate=d;});
+          const k=id+'|'+d; fm[k]=Math.round(((fm[k]||0)+v)*100)/100; if(!isRec){const pl=String(get(r,'Plano Conta')).trim();if(pl)pm[k]=pl;} n++; if(!de||d<de)de=d; if(!ate||d>ate)ate=d;});
         if(!de)throw new Error('nenhuma linha com data de pagamento e valor pago');
-        const r=ledgerMerge(kind,fm,de,ate);
+        const r=ledgerMerge(kind,fm,de,ate,pm);
         const base=S[key];
         base.arquivos=(base.arquivos||[]).concat([{nome:file.name,de,ate,linhas:n,estab:estabsDe(data,get).join(', '),em:new Date().toISOString().slice(0,19)}]).slice(-30);
         persist('base/'+key,0);
@@ -1022,6 +1050,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.tab){UI.tab=t.dataset.tab;tryLS('pp_tab',UI.tab);render();window.scrollTo({top:0});return;}
   if(t.id==='prevW'){UI.semana=add(UI.semana,-7);UI.diaSel=null;UI.mes=null;render();return;}
   if(t.id==='nextW'){UI.semana=add(UI.semana,7);UI.diaSel=null;UI.mes=null;render();return;}
+  if(t.dataset.fold){UI.fold=Object.assign({},UI.fold||{});UI.fold[t.dataset.fold]=!UI.fold[t.dataset.fold];tryLS('pp_fold',JSON.stringify(UI.fold));render();const b=document.querySelector('[data-fold="'+t.dataset.fold+'"]');if(b)b.focus();return;}
   if(t.dataset.dia){UI.diaSel=UI.diaSel===t.dataset.dia?null:t.dataset.dia;render();return;}
   const a=t.dataset.act;
   if(a==='fechaDia'){UI.diaSel=null;render();return;}
