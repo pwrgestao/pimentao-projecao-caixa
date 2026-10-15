@@ -326,7 +326,7 @@ function titulos(){
   const keys=Object.keys(S.pagarChunks).filter(k=>+k.slice(1)<(S.pagarMeta.chunks||0)).sort((a,b)=>+a.slice(1)-+b.slice(1));
   const rows=[];keys.forEach(k=>(S.pagarChunks[k].rows||[]).forEach(r=>rows.push(r)));
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
-  const ini=UI.semana;
+  const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
   return rows.map(r=>{
     const [id,part,venc,valor,forma,plano,sit]=r;
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
@@ -395,7 +395,18 @@ function saldoReal(d){const b=(S.saldos.dias||{})[d];if(!b)return null;const t=O
 function ultimoSaldoAntes(iso){const ks=Object.keys(S.saldos.dias||{}).filter(k=>k<=iso).sort();return ks.length?ks[ks.length-1]:null;}
 // saldo de partida da semana: digitado > último saldo das contas + projeção dos dias entre ele e a segunda
 function saldoPartida(){
-  const man=(S.geral.saldoSemana||{})[UI.semana];
+  const W=UI.semana, sAtual=monday(todayIso());
+  const manW=(S.geral.saldoSemana||{})[W];
+  if(W>sAtual&&!(manW!=null&&manW!=='')){
+    // semana futura: parte do saldo da semana atual (ou da última semana futura com saldo digitado) e projeta os dias até a véspera
+    const ms=Object.keys(S.geral.saldoSemana||{}).filter(k=>k>sAtual&&k<W&&S.geral.saldoSemana[k]!=null&&S.geral.saldoSemana[k]!=='').sort();
+    const B=ms.length?ms[ms.length-1]:sAtual;
+    UI.semana=B;let st;try{st=saldoPartida();}finally{UI.semana=W;}
+    const dias=[];for(let d=B;d<W;d=add(d,1))dias.push(d);
+    const P=projecao(dias,st.valor,{manual:st.fonte==='manual'});const fim=P.cols[P.cols.length-1].fim;
+    return {valor:fim,fonte:'proj',B,st,mov:fim-st.valor,txt:`saldo final projetado de ${br(B)} a ${br(add(W,-1))}`};
+  }
+  const man=manW;
   if(man!=null&&man!=='')return {valor:+man,fonte:'manual',txt:'digitado no topo da página'};
   const L=ultimoSaldoAntes(UI.semana);
   if(!L)return {valor:0,fonte:'nenhum',txt:'importe o saldo das contas ou digite no topo'};
@@ -443,7 +454,7 @@ function render(){
   if(document.activeElement!==$('#semana'))$('#semana').value=UI.semana;
   const si=document.activeElement===$('#saldoIni');
   if(!si){const v=(S.geral.saldoSemana||{})[UI.semana];$('#saldoIni').value=v==null||v===''?'':(+v).toLocaleString('pt-BR',{minimumFractionDigits:2});
-    const sp=saldoPartida();$('#saldoIni').placeholder=sp.fonte==='auto'?'auto: '+sp.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'0,00';$('#saldoIni').title='Deixe vazio para usar o saldo das contas importado; digite para substituir.';}
+    const sp=saldoPartida();$('#saldoIni').placeholder=(sp.fonte==='auto'||sp.fonte==='proj')?'auto: '+sp.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'0,00';$('#saldoIni').title='Deixe vazio para usar o saldo das contas importado; digite para substituir.';}
   const P=projSemana();
   const nMover=P.tits.filter(t=>t.mover&&t.agenda>=UI.semana).length+manTitulos().filter(t=>t.mover&&t.agenda>=UI.semana).length;
   renderTabs(nMover);
@@ -508,6 +519,11 @@ function dayBlock(c,opts){
 }
 function partidaPanel(){
   const sp=saldoPartida();
+  if(sp.fonte==='proj')return `<section class="panel"><h3>De onde vem o saldo inicial</h3><dl class="meta">
+   <dt>Saldo inicial da semana de ${br(sp.B)}</dt><dd>${brl(sp.st.valor)} <span class="muted">(${esc(sp.st.txt)})</span></dd>
+   <dt>Recebimentos − pagamentos previstos de ${br(sp.B)} a ${br(add(UI.semana,-1))}</dt><dd>${brl(sp.mov)}</dd>
+   <dt>Saldo inicial desta semana</dt><dd>${brl(sp.valor)}</dd></dl>
+   <p class="hint">Semana futura: começa com o saldo final projetado das semanas anteriores, que já inclui os títulos atrasados e os pagamentos previstos até a véspera. Para usar outro valor, digite o saldo no topo da página; apague para voltar ao automático.</p></section>`;
   if(sp.fonte!=='auto')return '';
   return `<section class="panel"><h3>De onde vem o saldo inicial</h3><dl class="meta">
    <dt>Contas em ${brY(sp.L)}</dt><dd>${brl(sp.base-sp.din)}</dd>
@@ -1012,7 +1028,7 @@ document.addEventListener('click',e=>{
   if(t.id==='salvarHtml'){salvarHtml();return;}
   if(t.id==='atuSaldo'){if(S.geral.saldoSemana&&S.geral.saldoSemana[UI.semana]!=null){delete S.geral.saldoSemana[UI.semana];persist('cfg/geral',0);}
     $('#saldoIni').value='';const sp=saldoPartida();render();
-    toast(sp.fonte==='auto'?`Saldo inicial: ${brl(sp.valor)} — ${sp.txt}`:'Nenhum saldo registrado até a segunda-feira. Anexe a planilha de saldo do dia.');return;}
+    toast((sp.fonte==='auto'||sp.fonte==='proj')?`Saldo inicial: ${brl(sp.valor)} — ${sp.txt}`:'Nenhum saldo registrado até a segunda-feira. Anexe a planilha de saldo do dia.');return;}
   if(t.dataset.setaj&&t.dataset.setaj.startsWith('MAN:')){manData(t.dataset.setaj,t.dataset.d);render();toast('Lançamento reprogramado para '+br(t.dataset.d));return;}
   if(t.dataset.clraj&&t.dataset.clraj.startsWith('MAN:')){const m=(S.manuais.itens||[])[+t.dataset.clraj.slice(4)];if(m&&m.dataOrig){m.data=m.dataOrig;delete m.dataOrig;persist('cfg/manuais',0);}render();return;}
   if(t.dataset.excl&&t.dataset.excl.startsWith('MAN:')){const m=(S.manuais.itens||[])[+t.dataset.excl.slice(4)];if(m){m.excluido=true;persist('cfg/manuais',0);}render();toast('Lançamento manual excluído da projeção · veja em “Excluídos” para restaurar');return;}
