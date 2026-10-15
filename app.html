@@ -97,6 +97,11 @@ td.flag{background:var(--accent-soft);color:var(--accent);font-weight:700}
 td input.cell{width:100px;text-align:right;padding:3px 6px}
 th.click{cursor:pointer}
 th.sel{box-shadow:inset 0 -3px 0 var(--accent)}
+table.list th .ord{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font:inherit;color:inherit;text-transform:inherit;letter-spacing:inherit;white-space:nowrap}
+table.list th .ord:hover{color:var(--fg)}
+table.list th .ord:focus-visible{outline:2px solid var(--navy);outline-offset:2px;border-radius:3px}
+table.list th .ord .seta{font-size:10px;opacity:.35}
+table.list th .ord[data-on] .seta{opacity:1;color:var(--accent)}
 table.list th{font-family:var(--f-label);font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--surface2)}
 table.list td{font-size:13px}
 table.list td.txt,table.list th.txt{text-align:left;white-space:normal}
@@ -264,7 +269,7 @@ const S={
   recebidos:{dias:{},arquivos:[]},pagos:{dias:{},arquivos:[]},saldos:{dias:{},arquivos:[]},orcamento:{cmv:0.63,fat:{},compras:{},meses:{}},mov:{},compras:{},controle:{},pagarMeta:{chunks:0},pagarChunks:{},
 };
 let db=null, canWrite=true, loaded={cfg:false,base:false,pagar:false};
-const UI={tab:tryLS('pp_tab')||'semana',semana:monday(todayIso()),diaSel:null,filtroTit:'todos',diaTit:0,mes:null};
+const UI={ordTit:(()=>{try{return JSON.parse(tryLS('pp_ordtit')||'null');}catch(e){return null;}})(),tab:tryLS('pp_tab')||'semana',semana:monday(todayIso()),diaSel:null,filtroTit:'todos',diaTit:0,mes:null};
 
 // ---------------- persistência ----------------
 const queues={}, timers={};
@@ -599,7 +604,15 @@ function vTitulos(P){
   const nrm=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const q=nrm(UI.buscaTit).trim();
   const L0=q?T.filter(t=>nrm(t.part).includes(q)||nrm(t.id).includes(q)):T.filter(t=>f==='todos'||(f==='mover'&&t.mover)||(f==='atras'&&t.atras)||(f==='aj'&&t.aj)||(f==='rec'&&t.rec)||(f==='man'&&t.man)||(f==='semana'&&t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)));
-  const dw=UI.diaTit, L=dw?L0.filter(t=>wd(t.agenda)===dw):L0;
+  const dw=UI.diaTit, L=(dw?L0.filter(t=>wd(t.agenda)===dw):L0).slice();
+  const OT=UI.ordTit;
+  if(OT&&OT.k){const sit=t=>t.mover?'1':t.atras?'2':t.aj?'3':t.rec?'4':t.man?'5':'9';
+    const val=t=>OT.k==='valor'?t.valor:OT.k==='sit'?sit(t):OT.k==='dataCons'?t.dataCons:String(t[OT.k]??'');
+    const sg=OT.d==='desc'?-1:1;
+    L.sort((a,b)=>{const x=val(a),y=val(b);const c=typeof x==='number'?x-y:String(x).localeCompare(String(y),'pt-BR',{numeric:true,sensitivity:'base'});
+      return c?c*sg:(a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);});}
+  const thOrd=(k,lbl,cls)=>{const on=OT&&OT.k===k;const d=on?OT.d:'';
+    return `<th class="${cls||''}" aria-sort="${on?(d==='asc'?'ascending':'descending'):'none'}"><button class="ord" data-ordtit="${k}" ${on?'data-on':''} title="Ordenar por ${lbl.toLowerCase()}${on?(d==='asc'?' (decrescente)':' (voltar à ordem padrão)'):' (crescente)'}">${lbl}<span class="seta" aria-hidden="true">${on?(d==='asc'?'▲':'▼'):'▲▼'}</span></button></th>`;};
   const dtab=(w,lbl)=>{const X=w?L0.filter(t=>wd(t.agenda)===w):L0;return `<button class="sm daytab" aria-pressed="${dw===w}" data-diatit="${w}">${lbl}<small>${X.length} · ${fmt0(X.reduce((s,t)=>s+t.valor,0))}${w&&X.some(t=>t.mover)?' · '+X.filter(t=>t.mover).length+' a mover':''}</small></button>`;};
   const dtabs=`<div class="chips" role="tablist" aria-label="Dia da semana do pagamento">${dtab(0,'Todos os dias')}${[1,2,3,4,5,6,7].map(w=>dtab(w,DNL[w])).join('')}</div>`;
   const n=k=>T.filter(k).length;
@@ -610,7 +623,7 @@ function vTitulos(P){
   <div class="chips">${chip('todos','Todos',T.length)}${chip('semana','Nesta semana',n(t=>t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)))}${chip('mover','A mover',n(t=>t.mover))}${chip('atras','Atrasados',n(t=>t.atras))}${chip('rec','Orçado recorrente',n(t=>t.rec))}${chip('man','Lançamentos manuais',n(t=>t.man))}${chip('aj','Ajustados',n(t=>t.aj))}${chip('excl','Excluídos',EX.length)}</div>
   ${dtabs}
   ${dw?`<p class="hint"><b>${DNL[dw]}</b>: ${L.length} título(s), ${brl(L.reduce((s,t)=>s+t.valor,0))}${dw===2||dw===5?' — dia de pagamento de PIX/dinheiro.':' — PIX e dinheiro aqui devem ir para terça ou sexta.'}</p>`:''}
-  ${L.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th class="txt">Pagar em</th><th class="txt">Situação</th><th class="txt">Reprogramar</th><th></th></tr></thead><tbody>
+  ${L.length?`<div class="scroll"><table class="list"><thead><tr>${thOrd('id','Ident.','txt')}${thOrd('part','Participante','txt')}${thOrd('venc','Vencimento','txt')}${thOrd('valor','Valor')}${thOrd('forma','Forma','txt')}${thOrd('plano','Plano de conta','txt')}${thOrd('dataCons','Pagar em','txt')}${thOrd('sit','Situação','txt')}<th class="txt">Reprogramar</th><th></th></tr></thead><tbody>
   ${L.map(t=>{const K=t.key||t.id;return `<tr class="${t.mover?'mover':t.atras?'atras':''}"><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt nowrap">${br(t.venc)} ${DN[wd(t.venc)]}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td>
    <td class="txt nowrap">${UI.ajOutra===K?`<input type="date" class="in" data-aj="${esc(K)}" value="${t.dataCons}" style="width:150px"> <button class="sm" data-ajok="1">OK</button> <button class="sm ghost" data-ajcancel="1">cancelar</button>`:selPagarEm(t)}</td>
    <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''} ${t.man?'<span class="pill ok">lançamento manual</span>':''} ${t.passado?'<span class="pill atras">data já passou</span>':''}</td>
@@ -991,6 +1004,8 @@ document.addEventListener('click',e=>{
   if(a==='copyResumo'){copiarImagem(document.getElementById('capResumo'),`Resumo_projecao_${br(UI.semana).replace('/','-')}.png`);return;}
   if(a==='copyDia'){copiarImagem(document.querySelector('.day[data-day="'+t.dataset.d+'"]'),`Pagamentos_${br(t.dataset.d).replace('/','-')}.png`);return;}
   if(a==='xlsxCliente'){xlsxCliente(projSemana());return;}
+  if(t.dataset.ordtit){const k=t.dataset.ordtit,o=UI.ordTit;UI.ordTit=(!o||o.k!==k)?{k,d:'asc'}:o.d==='asc'?{k,d:'desc'}:null;tryLS('pp_ordtit',JSON.stringify(UI.ordTit));render();
+    const b=document.querySelector('[data-ordtit="'+k+'"]');if(b)b.focus();return;}
   if(t.dataset.filtro){UI.filtroTit=t.dataset.filtro;render();return;}
   if(t.dataset.diatit!==undefined){UI.diaTit=+t.dataset.diatit;render();return;}
   if(t.id==='salvarHtml'){salvarHtml();return;}
