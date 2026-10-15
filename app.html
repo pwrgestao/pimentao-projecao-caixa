@@ -506,9 +506,9 @@ function projTable(P,opts){
   const sec=(label,k)=>`<tr class="sec"><td>${k?tg(k,label):label}</td>${C.map(()=>'<td></td><td></td>').join('')}<td></td><td></td></tr>`;
   let h=`<div class="scroll"><table class="proj lado"><thead><tr><th rowspan="2">Classificação</th>${C.map(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`).join('')}<th colspan="2">Total</th></tr>
    <tr class="sub2">${C.map(()=>'<th>Orçado</th><th class="rl">Realizado</th>').join('')}<th>Orçado</th><th class="rl">Realizado</th></tr></thead><tbody>`;
-  h+=`<tr class="key"><td>Saldo inicial do dia</td>${C.map(c=>tdO(c.ini)+tdR(c.saldoReal)).join('')}<td></td><td class="rl"></td></tr>`;
-  h+=inRow('Dinheiro em espécie do dia (informar no realizado)','dinheiro',null,true);
-  h+=row('diferença saldo registrado x projetado para o início do dia',c=>0,(c)=>c.saldoReal==null?null:c.saldoReal-c.iniProj,'sub',null,false).replace(/<td class="zero">–<\/td>/g,'<td></td>');
+  h+=`<tr class="key"><td>${tg('ini','Saldo inicial do dia')}</td>${C.map(c=>tdO(c.ini)+tdR(c.saldoReal)).join('')}<td></td><td class="rl"></td></tr>`;
+  h+=inRow('Dinheiro em espécie do dia (informar no realizado)','dinheiro','ini',true);
+  h+=row('diferença saldo registrado x projetado para o início do dia',c=>0,(c)=>c.saldoReal==null?null:c.saldoReal-c.iniProj,'sub','ini',false).replace(/<td class="zero">–<\/td>/g,'<td></td>');
   h+=sec('Recebimentos','rec');
   h+=row('Média das contas recebidas na mesma ocorrência do dia da semana (últimos meses)',c=>c.recP,c=>c.recReal,null,'rec');
   h+=inRow('Ajuste manual de recebimentos (+/−)','ajRec','rec');
