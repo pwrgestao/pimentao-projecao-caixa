@@ -358,12 +358,14 @@ function recOcorrencias(a,b,tits){
     datas.forEach(d=>{
       if(it.ini&&d<it.ini)return; if(it.fim&&d>it.fim)return;
       let valor=+it.valor, data=d, obs='';
+      if(it.freq==='Semanal'&&+it.mensal>0){let n=0;for(let x=mStart(d);ym(x)===ym(d);x=add(x,1))if(wd(x)===wd(d))n++;valor=Math.round(+it.mensal/n*100)/100;} // total mensal rateado pelos dias da semana do mês
+      const base=valor;
       if(it.chave){const k=it.chave.toUpperCase(),m0=mStart(d),m1=m0.slice(0,8)+lastDay(d);
         const hit=tits.some(t=>t.considera&&(t.part||'').toUpperCase().includes(k)&&t.dataCons>=m0&&t.dataCons<=m1&&t.valor>=valor*0.9&&t.valor<=valor*1.1);
         if(hit)return;}
       const ex=excMap[it.id+'|'+d];
       if(ex){if(ex.novaData)data=ex.novaData; if(ex.novoValor!==''&&ex.novoValor!=null&&!isNaN(pnum(ex.novoValor)))valor=pnum(ex.novoValor); obs='exceção';}
-      if(valor>0)out.push({origem:'Orçado recorrente',valorOrig:+it.valor,valAlt:!!(ex&&ex.novoValor!==''&&ex.novoValor!=null&&pnum(ex.novoValor)!==+it.valor),data,desc:it.desc,valor,forma:it.forma||'',plano:it.plano||'',grupo:it.grupo||'Outros',recId:it.id,prev:d,obs});
+      if(valor>0)out.push({origem:'Orçado recorrente',valorOrig:base,valAlt:!!(ex&&ex.novoValor!==''&&ex.novoValor!=null&&pnum(ex.novoValor)!==base),data,desc:it.desc,valor,forma:it.forma||'',plano:it.plano||'',grupo:it.grupo||'Outros',recId:it.id,prev:d,obs});
     });
   });
   return out;
@@ -668,12 +670,12 @@ function editTable(listKey,cols,rows,addLabel){
 function vOrcado(){
   const G=grupos();
   const cols=[{k:'id',t:'ID',w:60},{k:'desc',t:'Descrição (aparece na lista)',w:240},{k:'grupo',t:'Grupo',opts:G,w:180},{k:'plano',t:'Plano de conta',w:170},{k:'forma',t:'Forma',w:110},
-    {k:'freq',t:'Frequência',opts:['Semanal','Mensal'],w:95},{k:'dsem',t:'Dia semana',opts:['1','2','3','4','5','6','7'],w:60},{k:'dmes',t:'Dia do mês',num:true,w:60},{k:'valor',t:'Valor',num:true,w:110},
+    {k:'freq',t:'Frequência',opts:['Semanal','Mensal'],w:95},{k:'dsem',t:'Dia semana',opts:['1','2','3','4','5','6','7'],w:60},{k:'dmes',t:'Dia do mês',num:true,w:60},{k:'valor',t:'Valor',num:true,w:110},{k:'mensal',t:'Total mensal (semanal: divide pelos dias do mês)',num:true,w:120},
     {k:'ativo',t:'Ativo',opts:['S','N'],w:55},{k:'regra',t:'Fim de semana/feriado',opts:['Não','Próx. útil','Útil anterior'],w:110},{k:'ini',t:'Vigência início',type:'date',w:130},{k:'fim',t:'Vigência fim',type:'date',w:130},{k:'chave',t:'Chave no contas a pagar',w:130},{k:'origem',t:'Origem do valor',w:320}];
   const it=S.recorrentes.itens||[];
   const sem=it.filter(x=>x.ativo==='S'&&x.freq==='Semanal').reduce((s,x)=>s+(+x.valor||0),0), mes=it.filter(x=>x.ativo==='S'&&x.freq==='Mensal').reduce((s,x)=>s+(+x.valor||0),0);
   return `<section class="panel"><h2>Orçamento recorrente</h2>
-  <p class="hint">Pagamentos orçados mesmo sem título no sistema. Dia da semana: 1 = segunda … 7 = domingo. Dia do mês 31 = último dia. “Chave no contas a pagar”: se houver título com esse nome no mesmo mês e valor até 10% diferente, o orçado sai para não contar em dobro. Ativos hoje: ${brl(sem)} por semana e ${brl(mes)} por mês.</p>
+  <p class="hint">Pagamentos orçados mesmo sem título no sistema. Dia da semana: 1 = segunda … 7 = domingo. Dia do mês 31 = último dia. “Total mensal” (só para frequência semanal): o valor do mês é dividido pelo número de vezes que aquele dia da semana cai no mês (ex.: R$ 30.000 em sábados = 5 × 6.000 ou 4 × 7.500); quando preenchido, substitui o campo Valor. “Chave no contas a pagar”: se houver título com esse nome no mesmo mês e valor até 10% diferente, o orçado sai para não contar em dobro. Ativos hoje: ${brl(sem)} por semana e ${brl(mes)} por mês.</p>
   ${editTable('recorrentes',cols,it,'Adicionar pagamento recorrente')}</section>`;
 }
 function planosLista(){return Object.keys(S.depara.map||{}).sort((a,b)=>a.localeCompare(b,'pt-BR'));}
@@ -1096,7 +1098,7 @@ function onChange(t){
     if(k==='depara'){const keys=Object.keys(S.depara.map);const old=keys[i];const grp=S.depara.map[old];
       if(f==='plano'){const nk=t.value.toUpperCase().trim();delete S.depara.map[old];if(nk)S.depara.map[nk]=grp;}else S.depara.map[old]=t.value;
       persist('cfg/depara',0);render();return;}
-    let v=t.value;if(['valor','novoValor','dmes'].includes(f)){v=v.trim()===''?'':pnum(v);if(v!==''&&isNaN(v))v='';}
+    let v=t.value;if(['valor','novoValor','dmes','mensal'].includes(f)){v=v.trim()===''?'':pnum(v);if(v!==''&&isNaN(v))v='';}
     listOf(k)[i][f]=v;
     if(k==='manuais'&&f==='data')delete listOf(k)[i].dataOrig;
     if(k==='manuais'&&f==='plano'&&v){const g=(S.depara.map||{})[String(v).toUpperCase()];if(g)listOf(k)[i].grupo=g;}
