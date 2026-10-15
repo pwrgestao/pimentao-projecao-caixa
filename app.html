@@ -367,7 +367,7 @@ function agenda(a,b,semCP){
   const out=[];
   if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id});});
   recOcorrencias(add(a,-40),add(b,40),tits).forEach(o=>{if(o.data>=a&&o.data<=b)out.push(o);});
-  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor);if(m.data&&v>0&&m.data>=a&&m.data<=b)out.push({origem:'Lançamento manual',data:m.data,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
+  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor);if(m.data&&v>0&&!m.excluido&&m.data>=a&&m.data<=b)out.push({origem:'Lançamento manual',data:m.data,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
   return {itens:out,tits};
 }
 function recRange(){const ks=Object.keys(S.recebidos.dias||{}).sort();return ks.length?[ks[0],ks[ks.length-1]]:null;}
@@ -440,7 +440,7 @@ function render(){
   if(!si){const v=(S.geral.saldoSemana||{})[UI.semana];$('#saldoIni').value=v==null||v===''?'':(+v).toLocaleString('pt-BR',{minimumFractionDigits:2});
     const sp=saldoPartida();$('#saldoIni').placeholder=sp.fonte==='auto'?'auto: '+sp.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}):'0,00';$('#saldoIni').title='Deixe vazio para usar o saldo das contas importado; digite para substituir.';}
   const P=projSemana();
-  const nMover=P.tits.filter(t=>t.mover&&t.agenda>=UI.semana).length;
+  const nMover=P.tits.filter(t=>t.mover&&t.agenda>=UI.semana).length+manTitulos().filter(t=>t.mover&&t.agenda>=UI.semana).length;
   renderTabs(nMover);
   const v=$('#view');
   if(UI.tab==='mes')UI.tab='semana';
@@ -568,42 +568,54 @@ function vExcluidos(EX,nT){
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos excluídos da projeção</h2><button class="sm" data-filtro="todos">← Voltar aos títulos (${nT})</button></div>
   <p class="hint">Estes títulos continuam no contas a pagar do sistema, mas não entram na projeção nem na lista do cliente. A exclusão fica guardada pelo Ident.</p>
   ${EX.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th></th></tr></thead><tbody>
-  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td>${t.rec?'<span class="pill ok">orçado recorrente</span> ':''}<button class="sm" data-restaura="${esc(t.key||t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
+  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td>${t.rec?'<span class="pill ok">orçado recorrente</span> ':''}${t.man?'<span class="pill ok">lançamento manual</span> ':''}<button class="sm" data-restaura="${esc(t.key||t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
 }
 function recDaSemana(P){
   return P.itens.filter(x=>x.origem==='Orçado recorrente').map(x=>({rec:true,key:'REC:'+x.recId+'|'+x.prev,id:x.recId,part:x.desc,venc:x.prev,valor:x.valor,forma:x.forma,plano:x.plano,grupo:x.grupo,
     dataCons:x.data,agenda:x.data,aj:x.data!==x.prev?{data:x.data}:null,valorAlt:x.obs==='exceção'&&x.data===x.prev,mover:false,atras:false}));
 }
+// lançamentos manuais como títulos a pagar (chave MAN:<posição na lista>)
+function manTitulos(){
+  const isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim()));
+  return (S.manuais.itens||[]).map((m,i)=>{const v=pnum(m.valor);if(!m.data||!(v>0))return null;
+    const forma=(m.forma||'').toUpperCase(),w=wd(m.data),excl=!!m.excluido,considera=!excl;
+    const mover=considera&&!isent.has(forma)&&w!==2&&w!==5;
+    const ant=add(m.data,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(m.data,Math.min((2-w+7)%7,(5-w+7)%7));
+    return {man:true,mi:i,key:'MAN:'+i,id:'M'+String(i+1).padStart(2,'0'),part:m.desc||'(sem descrição)',venc:m.dataOrig||m.data,valor:v,forma,plano:m.plano||'',grupo:m.grupo||'Outros',
+      dataCons:m.data,agenda:m.data,aj:(m.dataOrig&&m.dataOrig!==m.data)?{data:m.data}:null,excl,considera,mover,atras:false,passado:m.data<UI.semana,ant,seg};}).filter(Boolean);
+}
+function manData(key,d){const m=(S.manuais.itens||[])[+key.slice(4)];if(!m||!d)return;if(!m.dataOrig)m.dataOrig=m.data;m.data=d;if(m.dataOrig===m.data)delete m.dataOrig;persist('cfg/manuais',0);}
 function recCancelados(){
   const a=UI.semana,b=add(UI.semana,6),R={};(S.recorrentes.itens||[]).forEach(r=>R[r.id]=r);
   return (S.excecoes.itens||[]).filter(e=>e.id&&e.prev>=a&&e.prev<=b&&e.novoValor!==''&&e.novoValor!=null&&+e.novoValor===0)
     .map(e=>({rec:true,key:'REC:'+e.id+'|'+e.prev,id:e.id,part:(R[e.id]||{}).desc||e.id,venc:e.prev,valor:+((R[e.id]||{}).valor)||0,forma:(R[e.id]||{}).forma||'',plano:(R[e.id]||{}).plano||''}));
 }
 function vTitulos(P){
-  const T=P.tits.filter(t=>t.considera).concat(recDaSemana(P)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
+  const MT=manTitulos();
+  const T=P.tits.filter(t=>t.considera).concat(recDaSemana(P)).concat(MT.filter(t=>t.considera)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
   const f=UI.filtroTit;
-  const EX=P.tits.filter(t=>t.excl).concat(recCancelados());
+  const EX=P.tits.filter(t=>t.excl).concat(recCancelados()).concat(MT.filter(t=>t.excl));
   if(f==='excl')return vExcluidos(EX,T.length);
   const nrm=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const q=nrm(UI.buscaTit).trim();
-  const L0=q?T.filter(t=>nrm(t.part).includes(q)||nrm(t.id).includes(q)):T.filter(t=>f==='todos'||(f==='mover'&&t.mover)||(f==='atras'&&t.atras)||(f==='aj'&&t.aj)||(f==='rec'&&t.rec)||(f==='semana'&&t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)));
+  const L0=q?T.filter(t=>nrm(t.part).includes(q)||nrm(t.id).includes(q)):T.filter(t=>f==='todos'||(f==='mover'&&t.mover)||(f==='atras'&&t.atras)||(f==='aj'&&t.aj)||(f==='rec'&&t.rec)||(f==='man'&&t.man)||(f==='semana'&&t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)));
   const dw=UI.diaTit, L=dw?L0.filter(t=>wd(t.agenda)===dw):L0;
   const dtab=(w,lbl)=>{const X=w?L0.filter(t=>wd(t.agenda)===w):L0;return `<button class="sm daytab" aria-pressed="${dw===w}" data-diatit="${w}">${lbl}<small>${X.length} · ${fmt0(X.reduce((s,t)=>s+t.valor,0))}${w&&X.some(t=>t.mover)?' · '+X.filter(t=>t.mover).length+' a mover':''}</small></button>`;};
   const dtabs=`<div class="chips" role="tablist" aria-label="Dia da semana do pagamento">${dtab(0,'Todos os dias')}${[1,2,3,4,5,6,7].map(w=>dtab(w,DNL[w])).join('')}</div>`;
   const n=k=>T.filter(k).length;
   const chip=(k,t,c)=>`<button class="sm" aria-pressed="${f===k}" data-filtro="${k}">${t} (${c})</button>`;
-  return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos a pagar e orçado recorrente</h2><span class="muted" style="font-size:12px">${esc(S.pagarMeta.arquivo||'')} ${S.pagarMeta.em?'· importado '+brY(S.pagarMeta.em.slice(0,10)):''}</span></div>
-  <p class="hint">PIX e dinheiro devem sair às terças e sextas: use os botões para reprogramar ou digite outra data (vale para qualquer título, inclusive boleto, para casar com os recebimentos). O ajuste fica guardado pelo Ident. e vale nas próximas importações. Os pagamentos do orçado recorrente da semana também aparecem aqui (ID começando com R): mudar o dia ou excluir vale só para aquela data e fica registrado em Exceções. Boleto, cheque e débito que vencem em fim de semana ou feriado passam sozinhos para o próximo dia útil.</p>
+  return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos a pagar, orçado recorrente e lançamentos manuais</h2><span class="muted" style="font-size:12px">${esc(S.pagarMeta.arquivo||'')} ${S.pagarMeta.em?'· importado '+brY(S.pagarMeta.em.slice(0,10)):''}</span></div>
+  <p class="hint">PIX e dinheiro devem sair às terças e sextas: use os botões para reprogramar ou digite outra data (vale para qualquer título, inclusive boleto, para casar com os recebimentos). O ajuste fica guardado pelo Ident. e vale nas próximas importações. Os pagamentos do orçado recorrente da semana também aparecem aqui (ID começando com R): mudar o dia ou excluir vale só para aquela data e fica registrado em Exceções. Os lançamentos manuais aparecem com ID começando com M: reprogramar muda a data do próprio lançamento e excluir tira o lançamento da projeção (dá para restaurar em “Excluídos”). Boleto, cheque e débito que vencem em fim de semana ou feriado passam sozinhos para o próximo dia útil.</p>
   <div class="row"><label for="buscaTit" class="muted">Buscar fornecedor</label><input id="buscaTit" type="search" value="${esc(UI.buscaTit||'')}" placeholder="Digite o nome do participante ou o Ident." style="flex:1;min-width:220px;max-width:420px" autocomplete="off">${q?`<button class="sm ghost" data-act="limpaBusca">Limpar</button><span class="muted" style="font-size:13px">${L0.length} título(s) de “${esc(UI.buscaTit)}” · ${brl(L0.reduce((s,t)=>s+t.valor,0))} — busca em todos os títulos cadastrados</span>`:''}</div>
-  <div class="chips">${chip('todos','Todos',T.length)}${chip('semana','Nesta semana',n(t=>t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)))}${chip('mover','A mover',n(t=>t.mover))}${chip('atras','Atrasados',n(t=>t.atras))}${chip('rec','Orçado recorrente',n(t=>t.rec))}${chip('aj','Ajustados',n(t=>t.aj))}${chip('excl','Excluídos',EX.length)}</div>
+  <div class="chips">${chip('todos','Todos',T.length)}${chip('semana','Nesta semana',n(t=>t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)))}${chip('mover','A mover',n(t=>t.mover))}${chip('atras','Atrasados',n(t=>t.atras))}${chip('rec','Orçado recorrente',n(t=>t.rec))}${chip('man','Lançamentos manuais',n(t=>t.man))}${chip('aj','Ajustados',n(t=>t.aj))}${chip('excl','Excluídos',EX.length)}</div>
   ${dtabs}
   ${dw?`<p class="hint"><b>${DNL[dw]}</b>: ${L.length} título(s), ${brl(L.reduce((s,t)=>s+t.valor,0))}${dw===2||dw===5?' — dia de pagamento de PIX/dinheiro.':' — PIX e dinheiro aqui devem ir para terça ou sexta.'}</p>`:''}
   ${L.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th class="txt">Pagar em</th><th class="txt">Situação</th><th class="txt">Reprogramar</th><th></th></tr></thead><tbody>
   ${L.map(t=>{const K=t.key||t.id;return `<tr class="${t.mover?'mover':t.atras?'atras':''}"><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt nowrap">${br(t.venc)} ${DN[wd(t.venc)]}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td>
    <td class="txt nowrap">${UI.ajOutra===K?`<input type="date" class="in" data-aj="${esc(K)}" value="${t.dataCons}" style="width:150px"> <button class="sm" data-ajok="1">OK</button> <button class="sm ghost" data-ajcancel="1">cancelar</button>`:selPagarEm(t)}</td>
-   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''}</td>
-   <td class="txt nowrap">${t.mover?`<button class="sm" data-setaj="${esc(t.id)}" data-d="${t.ant}">← ${DN[wd(t.ant)]} ${br(t.ant)}</button> <button class="sm" data-setaj="${esc(t.id)}" data-d="${t.seg}">${DN[wd(t.seg)]} ${br(t.seg)} →</button>`:''} ${t.aj?`<button class="sm ghost" data-clraj="${esc(K)}">desfazer</button>`:''}</td>
-   <td><button class="sm ghost danger" data-excl="${esc(K)}" title="${t.rec?'Excluir este pagamento recorrente só nesta data':'Excluir este título da projeção'}" aria-label="Excluir ${esc(t.id)}">${ICON_LIXO}</button></td></tr>`;}).join('')}
+   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''} ${t.man?'<span class="pill ok">lançamento manual</span>':''} ${t.passado?'<span class="pill atras">data já passou</span>':''}</td>
+   <td class="txt nowrap">${t.mover?`<button class="sm" data-setaj="${esc(t.man?K:t.id)}" data-d="${t.ant}">← ${DN[wd(t.ant)]} ${br(t.ant)}</button> <button class="sm" data-setaj="${esc(t.man?K:t.id)}" data-d="${t.seg}">${DN[wd(t.seg)]} ${br(t.seg)} →</button>`:''} ${t.aj?`<button class="sm ghost" data-clraj="${esc(K)}">desfazer</button>`:''}</td>
+   <td><button class="sm ghost danger" data-excl="${esc(K)}" title="${t.rec?'Excluir este pagamento recorrente só nesta data':t.man?'Excluir este lançamento manual da projeção':'Excluir este título da projeção'}" aria-label="Excluir ${esc(t.id)}">${ICON_LIXO}</button></td></tr>`;}).join('')}
   </tbody></table></div>`:'<div class="empty">Nenhum título neste filtro.</div>'}</section>`;
 }
 function editTable(listKey,cols,rows,addLabel){
@@ -985,6 +997,10 @@ document.addEventListener('click',e=>{
   if(t.id==='atuSaldo'){if(S.geral.saldoSemana&&S.geral.saldoSemana[UI.semana]!=null){delete S.geral.saldoSemana[UI.semana];persist('cfg/geral',0);}
     $('#saldoIni').value='';const sp=saldoPartida();render();
     toast(sp.fonte==='auto'?`Saldo inicial: ${brl(sp.valor)} — ${sp.txt}`:'Nenhum saldo registrado até a segunda-feira. Anexe a planilha de saldo do dia.');return;}
+  if(t.dataset.setaj&&t.dataset.setaj.startsWith('MAN:')){manData(t.dataset.setaj,t.dataset.d);render();toast('Lançamento reprogramado para '+br(t.dataset.d));return;}
+  if(t.dataset.clraj&&t.dataset.clraj.startsWith('MAN:')){const m=(S.manuais.itens||[])[+t.dataset.clraj.slice(4)];if(m&&m.dataOrig){m.data=m.dataOrig;delete m.dataOrig;persist('cfg/manuais',0);}render();return;}
+  if(t.dataset.excl&&t.dataset.excl.startsWith('MAN:')){const m=(S.manuais.itens||[])[+t.dataset.excl.slice(4)];if(m){m.excluido=true;persist('cfg/manuais',0);}render();toast('Lançamento manual excluído da projeção · veja em “Excluídos” para restaurar');return;}
+  if(t.dataset.restaura&&t.dataset.restaura.startsWith('MAN:')){const m=(S.manuais.itens||[])[+t.dataset.restaura.slice(4)];if(m){delete m.excluido;persist('cfg/manuais',0);}render();toast('Lançamento manual restaurado');return;}
   if(t.dataset.setaj){S.ajustes.map[t.dataset.setaj]=Object.assign({},S.ajustes.map[t.dataset.setaj]||{},{data:t.dataset.d,em:todayIso()});persist('cfg/ajustes',0);render();toast('Reprogramado para '+br(t.dataset.d));return;}
   if(t.dataset.clraj&&t.dataset.clraj.startsWith('REC:')){recExc(t.dataset.clraj,{novaData:''});render();return;}
   if(t.dataset.excl&&t.dataset.excl.startsWith('REC:')){recExc(t.dataset.excl,{novoValor:0});render();toast('Pagamento recorrente excluído nesta data · veja em “Excluídos” para restaurar');return;}
@@ -1020,9 +1036,11 @@ function onChange(t){
   if(t.id==='saldoIni'){const v=pnum(t.value);S.geral.saldoSemana=S.geral.saldoSemana||{};if(t.value.trim()==='')delete S.geral.saldoSemana[UI.semana];else if(!isNaN(v))S.geral.saldoSemana[UI.semana]=v;persist('cfg/geral',0);render();return;}
   if(t.id==='saldoMes'){const v=pnum(t.value);S.geral.saldoMes=S.geral.saldoMes||{};if(t.value.trim()==='')delete S.geral.saldoMes[t.dataset.mes];else if(!isNaN(v))S.geral.saldoMes[t.dataset.mes]=v;persist('cfg/geral',0);render();return;}
   if(t.dataset.map){const m=t.dataset.map,d=t.dataset.d,v=pnum(t.value);S.geral[m]=S.geral[m]||{};if(t.value.trim()===''||isNaN(v))delete S.geral[m][d];else S.geral[m][d]=v;persist('cfg/geral',0);render();return;}
+  if(t.dataset.ajsel!==undefined&&t.dataset.ajsel.startsWith('MAN:')&&t.value!=='__outra'){manData(t.dataset.ajsel,t.value);render();toast('Lançamento movido para '+DN[wd(t.value)]+' '+br(t.value));return;}
   if(t.dataset.ajsel!==undefined&&t.dataset.ajsel.startsWith('REC:')&&t.value!=='__outra'){recExc(t.dataset.ajsel,{novaData:t.value});render();toast('Recorrente movido para '+DN[wd(t.value)]+' '+br(t.value));return;}
   if(t.dataset.ajsel!==undefined){const id=t.dataset.ajsel;if(t.value==='__outra'){UI.ajOutra=id;render();const i=document.querySelector('input[data-aj="'+CSS.escape(id)+'"]');if(i){i.focus();try{i.showPicker&&i.showPicker();}catch(e){}}return;}
     S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{data:t.value,em:todayIso()});persist('cfg/ajustes',0);render();toast('Pagamento de '+id+' para '+DN[wd(t.value)]+' '+br(t.value));return;}
+  if(t.dataset.aj!==undefined&&t.dataset.aj.startsWith('MAN:')){UI.ajOutra=null;if(dataValida(t.value)){manData(t.dataset.aj,t.value);toast('Lançamento movido para '+brY(t.value));}render();return;}
   if(t.dataset.aj!==undefined&&t.dataset.aj.startsWith('REC:')){UI.ajOutra=null;if(dataValida(t.value)){recExc(t.dataset.aj,{novaData:t.value});toast('Recorrente movido para '+brY(t.value));}render();return;}
   if(t.dataset.aj!==undefined){const id=t.dataset.aj;UI.ajOutra=null;if(dataValida(t.value)){S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{data:t.value,em:todayIso()});persist('cfg/ajustes',0);toast('Pagamento de '+id+' para '+brY(t.value));}render();return;}
   if(t.dataset.list){const k=t.dataset.list,i=+t.dataset.i,f=t.dataset.k;
@@ -1031,6 +1049,7 @@ function onChange(t){
       persist('cfg/depara',0);render();return;}
     let v=t.value;if(['valor','novoValor','dmes'].includes(f)){v=v.trim()===''?'':pnum(v);if(v!==''&&isNaN(v))v='';}
     listOf(k)[i][f]=v;
+    if(k==='manuais'&&f==='data')delete listOf(k)[i].dataOrig;
     if(k==='manuais'&&f==='plano'&&v){const g=(S.depara.map||{})[String(v).toUpperCase()];if(g)listOf(k)[i].grupo=g;}
     persist(pathOf(k),300);render();return;}
   if(t.dataset.sem!==undefined){const mk=ym(UI.mesOrc||mesAnalise());const W=semanasMes(mk).map(w=>Object.assign({},w));const v=pnum(t.value);if(!isNaN(v)){W[+t.dataset.sem][t.dataset.k]=v;setSemanas(mk,W);}render();return;}
