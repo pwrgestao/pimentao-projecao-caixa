@@ -1,8 +1,7 @@
-<!doctype html>
-<html lang="pt-BR"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><title>Projeção de Caixa Pimentão</title>
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><title>Projeção de Caixa Pimentão</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&amp;family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&amp;display=swap">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&family=Nunito+Sans:opsz,wght@6..12,400;6..12,600;6..12,700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
@@ -149,19 +148,19 @@ button.daytab[aria-pressed="true"] small{color:inherit;opacity:.85}
       <input type="date" id="semana">
       <button class="ghost sm" id="nextW" aria-label="Próxima semana">▶</button>
       <label for="saldoIni">Saldo inicial</label>
-      <input class="in" id="saldoIni" inputmode="decimal" placeholder="auto" style="width:140px;text-align:right" title="Deixe vazio para usar o saldo das contas importado; digite para substituir.">
+      <input class="in" id="saldoIni" inputmode="decimal" placeholder="0,00" style="width:140px;text-align:right">
       <button class="sm" id="atuSaldo" title="Usa o saldo registrado no primeiro dia da semana (planilha de saldo + espécie)">Atualizar saldo</button>
       <button class="save sm" id="salvarHtml" title="Baixa um arquivo .html com todos os dados e ajustes atuais">Salvar e baixar HTML</button>
     </div>
   </header>
-  <div id="banner" class="banner" hidden=""></div>
+  <div id="banner" class="banner" hidden></div>
   <div class="app">
     <nav class="side" id="tabs" aria-label="Menu da ferramenta"></nav>
     <main id="view" style="min-width:0"></main>
   </div>
-  <p class="status" id="status">Alterações guardadas neste navegador · use “Salvar e baixar HTML” para levar o arquivo atualizado</p>
+  <p class="status" id="status"></p>
 </div>
-<div class="toast" id="toast" hidden=""></div>
+<div class="toast" id="toast" hidden></div>
 <script type="application/json" id="estado">null</script>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
@@ -262,7 +261,7 @@ const DEF_GRUPOS=['Fornecedores Bahia','Fornecedores CEASA','Fornecedores Avulso
 const S={
   geral:{mesesHist:4,fatorFeriado:1,formasIsentas:['BOLETO','CHEQUE','DEBITO EM CONTA'],grupos:DEF_GRUPOS,saldoSemana:{},saldoMes:{},ajRec:{},ajPag:{},saldoReal:{},dinheiro:{},},
   recorrentes:{itens:[]},feriados:{itens:[]},depara:{map:{}},ajustes:{map:{}},excecoes:{itens:[]},manuais:{itens:[]},
-  recebidos:{dias:{},arquivos:[]},pagos:{dias:{},arquivos:[]},saldos:{dias:{},arquivos:[]},orcamento:{cmv:0.63,fat:{},compras:{},meses:{}},compras:{},controle:{},pagarMeta:{chunks:0},pagarChunks:{},
+  recebidos:{dias:{},arquivos:[]},pagos:{dias:{},arquivos:[]},saldos:{dias:{},arquivos:[]},orcamento:{cmv:0.63,fat:{},compras:{},meses:{}},mov:{},compras:{},controle:{},pagarMeta:{chunks:0},pagarChunks:{},
 };
 let db=null, canWrite=true, loaded={cfg:false,base:false,pagar:false};
 const UI={tab:tryLS('pp_tab')||'semana',semana:monday(todayIso()),diaSel:null,filtroTit:'todos',diaTit:0,mes:null};
@@ -289,12 +288,13 @@ function docOf(path){
   if(path.startsWith('pagar/')) return S.pagarChunks[path.split('/')[1]];
   if(path.startsWith('compras/')) return S.compras[path.split('/')[1]];
   if(path.startsWith('controle/')) return S.controle[path.split('/')[1]];
+  if(path.startsWith('mov/')) return S.mov[path.split('/')[1]];
   if(path==='cfg/orcamento') return S.orcamento;
   return m[path];
 }
 const offline=()=>!db;
-function snapshotEstado(){return {versao:1,salvoEm:new Date().toISOString().slice(0,19),geral:S.geral,recorrentes:S.recorrentes,feriados:S.feriados,depara:S.depara,ajustes:S.ajustes,excecoes:S.excecoes,manuais:S.manuais,orcamento:S.orcamento,compras:S.compras,controle:S.controle,recebidos:S.recebidos,pagos:S.pagos,saldos:S.saldos,pagarMeta:S.pagarMeta,pagarChunks:S.pagarChunks};}
-function aplicarEstado(e){if(!e||typeof e!=='object')return false;['geral','recorrentes','feriados','depara','ajustes','excecoes','manuais','orcamento','compras','controle','recebidos','pagos','saldos','pagarMeta','pagarChunks'].forEach(k=>{if(e[k]!==undefined)S[k]=k==='geral'?Object.assign({},S.geral,e[k]):e[k];});return true;}
+function snapshotEstado(){return {versao:1,salvoEm:new Date().toISOString().slice(0,19),geral:S.geral,recorrentes:S.recorrentes,feriados:S.feriados,depara:S.depara,ajustes:S.ajustes,excecoes:S.excecoes,manuais:S.manuais,orcamento:S.orcamento,compras:S.compras,controle:S.controle,mov:S.mov,recebidos:S.recebidos,pagos:S.pagos,saldos:S.saldos,pagarMeta:S.pagarMeta,pagarChunks:S.pagarChunks};}
+function aplicarEstado(e){if(!e||typeof e!=='object')return false;['geral','recorrentes','feriados','depara','ajustes','excecoes','manuais','orcamento','compras','controle','mov','recebidos','pagos','saldos','pagarMeta','pagarChunks'].forEach(k=>{if(e[k]!==undefined)S[k]=k==='geral'?Object.assign({},S.geral,e[k]):e[k];});return true;}
 async function salvarHtml(){
   const est=JSON.stringify(snapshotEstado()).replace(/</g,'\\u003c');
   const root=document.documentElement.cloneNode(true);
@@ -553,39 +553,57 @@ function selPagarEm(t){
   const dias=weekDays(), opts=[];
   if(!dias.includes(t.dataCons))opts.push([t.dataCons,`${DN[wd(t.dataCons)]} ${brY(t.dataCons)}`]);
   dias.forEach(d=>opts.push([d,`${DN[wd(d)]} ${br(d)}${(wd(d)===2||wd(d)===5)?' · ter/sex':''}`]));
-  return `<select class="${t.aj?'in':''}" data-ajsel="${esc(t.id)}" aria-label="Dia de pagamento de ${esc(t.part)}">${opts.map(([v,l])=>`<option value="${v}" ${v===t.dataCons?'selected':''}>${l}</option>`).join('')}<option value="__outra">Outra data…</option></select>`;
+  return `<select class="${t.aj?'in':''}" data-ajsel="${esc(t.key||t.id)}" aria-label="Dia de pagamento de ${esc(t.part)}">${opts.map(([v,l])=>`<option value="${v}" ${v===t.dataCons?'selected':''}>${l}</option>`).join('')}<option value="__outra">Outra data…</option></select>`;
+}
+function recExc(key,patch){
+  const [rid,prev]=key.slice(4).split('|');S.excecoes.itens=S.excecoes.itens||[];
+  let e=S.excecoes.itens.find(x=>x.id===rid&&x.prev===prev);
+  if(!e){e={id:rid,prev,novaData:'',novoValor:'',obs:'ajuste em Títulos a pagar'};S.excecoes.itens.push(e);}
+  Object.assign(e,patch);
+  if(e.novaData===prev)e.novaData='';
+  if((e.novaData===''||e.novaData==null)&&(e.novoValor===''||e.novoValor==null))S.excecoes.itens.splice(S.excecoes.itens.indexOf(e),1);
+  persist('cfg/excecoes',0);
 }
 function vExcluidos(EX,nT){
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos excluídos da projeção</h2><button class="sm" data-filtro="todos">← Voltar aos títulos (${nT})</button></div>
   <p class="hint">Estes títulos continuam no contas a pagar do sistema, mas não entram na projeção nem na lista do cliente. A exclusão fica guardada pelo Ident.</p>
   ${EX.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th></th></tr></thead><tbody>
-  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td><button class="sm" data-restaura="${esc(t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
+  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td>${t.rec?'<span class="pill ok">orçado recorrente</span> ':''}<button class="sm" data-restaura="${esc(t.key||t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
+}
+function recDaSemana(P){
+  return P.itens.filter(x=>x.origem==='Orçado recorrente').map(x=>({rec:true,key:'REC:'+x.recId+'|'+x.prev,id:x.recId,part:x.desc,venc:x.prev,valor:x.valor,forma:x.forma,plano:x.plano,grupo:x.grupo,
+    dataCons:x.data,agenda:x.data,aj:x.data!==x.prev?{data:x.data}:null,valorAlt:x.obs==='exceção'&&x.data===x.prev,mover:false,atras:false}));
+}
+function recCancelados(){
+  const a=UI.semana,b=add(UI.semana,6),R={};(S.recorrentes.itens||[]).forEach(r=>R[r.id]=r);
+  return (S.excecoes.itens||[]).filter(e=>e.id&&e.prev>=a&&e.prev<=b&&e.novoValor!==''&&e.novoValor!=null&&+e.novoValor===0)
+    .map(e=>({rec:true,key:'REC:'+e.id+'|'+e.prev,id:e.id,part:(R[e.id]||{}).desc||e.id,venc:e.prev,valor:+((R[e.id]||{}).valor)||0,forma:(R[e.id]||{}).forma||'',plano:(R[e.id]||{}).plano||''}));
 }
 function vTitulos(P){
-  const T=P.tits.filter(t=>t.considera).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
+  const T=P.tits.filter(t=>t.considera).concat(recDaSemana(P)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
   const f=UI.filtroTit;
-  const EX=P.tits.filter(t=>t.excl);
+  const EX=P.tits.filter(t=>t.excl).concat(recCancelados());
   if(f==='excl')return vExcluidos(EX,T.length);
   const nrm=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const q=nrm(UI.buscaTit).trim();
-  const L0=q?T.filter(t=>nrm(t.part).includes(q)||nrm(t.id).includes(q)):T.filter(t=>f==='todos'||(f==='mover'&&t.mover)||(f==='atras'&&t.atras)||(f==='aj'&&t.aj)||(f==='semana'&&t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)));
+  const L0=q?T.filter(t=>nrm(t.part).includes(q)||nrm(t.id).includes(q)):T.filter(t=>f==='todos'||(f==='mover'&&t.mover)||(f==='atras'&&t.atras)||(f==='aj'&&t.aj)||(f==='rec'&&t.rec)||(f==='semana'&&t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)));
   const dw=UI.diaTit, L=dw?L0.filter(t=>wd(t.agenda)===dw):L0;
   const dtab=(w,lbl)=>{const X=w?L0.filter(t=>wd(t.agenda)===w):L0;return `<button class="sm daytab" aria-pressed="${dw===w}" data-diatit="${w}">${lbl}<small>${X.length} · ${fmt0(X.reduce((s,t)=>s+t.valor,0))}${w&&X.some(t=>t.mover)?' · '+X.filter(t=>t.mover).length+' a mover':''}</small></button>`;};
   const dtabs=`<div class="chips" role="tablist" aria-label="Dia da semana do pagamento">${dtab(0,'Todos os dias')}${[1,2,3,4,5,6,7].map(w=>dtab(w,DNL[w])).join('')}</div>`;
   const n=k=>T.filter(k).length;
   const chip=(k,t,c)=>`<button class="sm" aria-pressed="${f===k}" data-filtro="${k}">${t} (${c})</button>`;
-  return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos do contas a pagar</h2><span class="muted" style="font-size:12px">${esc(S.pagarMeta.arquivo||'')} ${S.pagarMeta.em?'· importado '+brY(S.pagarMeta.em.slice(0,10)):''}</span></div>
-  <p class="hint">PIX e dinheiro devem sair às terças e sextas: use os botões para reprogramar ou digite outra data (vale para qualquer título, inclusive boleto, para casar com os recebimentos). O ajuste fica guardado pelo Ident. e vale nas próximas importações. Boleto, cheque e débito que vencem em fim de semana ou feriado passam sozinhos para o próximo dia útil.</p>
+  return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos a pagar e orçado recorrente</h2><span class="muted" style="font-size:12px">${esc(S.pagarMeta.arquivo||'')} ${S.pagarMeta.em?'· importado '+brY(S.pagarMeta.em.slice(0,10)):''}</span></div>
+  <p class="hint">PIX e dinheiro devem sair às terças e sextas: use os botões para reprogramar ou digite outra data (vale para qualquer título, inclusive boleto, para casar com os recebimentos). O ajuste fica guardado pelo Ident. e vale nas próximas importações. Os pagamentos do orçado recorrente da semana também aparecem aqui (ID começando com R): mudar o dia ou excluir vale só para aquela data e fica registrado em Exceções. Boleto, cheque e débito que vencem em fim de semana ou feriado passam sozinhos para o próximo dia útil.</p>
   <div class="row"><label for="buscaTit" class="muted">Buscar fornecedor</label><input id="buscaTit" type="search" value="${esc(UI.buscaTit||'')}" placeholder="Digite o nome do participante ou o Ident." style="flex:1;min-width:220px;max-width:420px" autocomplete="off">${q?`<button class="sm ghost" data-act="limpaBusca">Limpar</button><span class="muted" style="font-size:13px">${L0.length} título(s) de “${esc(UI.buscaTit)}” · ${brl(L0.reduce((s,t)=>s+t.valor,0))} — busca em todos os títulos cadastrados</span>`:''}</div>
-  <div class="chips">${chip('todos','Todos',T.length)}${chip('semana','Nesta semana',n(t=>t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)))}${chip('mover','A mover',n(t=>t.mover))}${chip('atras','Atrasados',n(t=>t.atras))}${chip('aj','Ajustados',n(t=>t.aj))}${chip('excl','Excluídos',EX.length)}</div>
+  <div class="chips">${chip('todos','Todos',T.length)}${chip('semana','Nesta semana',n(t=>t.agenda>=UI.semana&&t.agenda<=add(UI.semana,6)))}${chip('mover','A mover',n(t=>t.mover))}${chip('atras','Atrasados',n(t=>t.atras))}${chip('rec','Orçado recorrente',n(t=>t.rec))}${chip('aj','Ajustados',n(t=>t.aj))}${chip('excl','Excluídos',EX.length)}</div>
   ${dtabs}
   ${dw?`<p class="hint"><b>${DNL[dw]}</b>: ${L.length} título(s), ${brl(L.reduce((s,t)=>s+t.valor,0))}${dw===2||dw===5?' — dia de pagamento de PIX/dinheiro.':' — PIX e dinheiro aqui devem ir para terça ou sexta.'}</p>`:''}
   ${L.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th class="txt">Pagar em</th><th class="txt">Situação</th><th class="txt">Reprogramar</th><th></th></tr></thead><tbody>
-  ${L.map(t=>`<tr class="${t.mover?'mover':t.atras?'atras':''}"><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt nowrap">${br(t.venc)} ${DN[wd(t.venc)]}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td>
-   <td class="txt nowrap">${UI.ajOutra===t.id?`<input type="date" class="in" data-aj="${esc(t.id)}" value="${t.dataCons}" style="width:150px"> <button class="sm" data-ajok="1">OK</button> <button class="sm ghost" data-ajcancel="1">cancelar</button>`:selPagarEm(t)}</td>
-   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''}</td>
-   <td class="txt nowrap">${t.mover?`<button class="sm" data-setaj="${esc(t.id)}" data-d="${t.ant}">← ${DN[wd(t.ant)]} ${br(t.ant)}</button> <button class="sm" data-setaj="${esc(t.id)}" data-d="${t.seg}">${DN[wd(t.seg)]} ${br(t.seg)} →</button>`:''} ${t.aj?`<button class="sm ghost" data-clraj="${esc(t.id)}">desfazer</button>`:''}</td>
-   <td><button class="sm ghost danger" data-excl="${esc(t.id)}" title="Excluir este título da projeção" aria-label="Excluir título ${esc(t.id)}">${ICON_LIXO}</button></td></tr>`).join('')}
+  ${L.map(t=>{const K=t.key||t.id;return `<tr class="${t.mover?'mover':t.atras?'atras':''}"><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt nowrap">${br(t.venc)} ${DN[wd(t.venc)]}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td>
+   <td class="txt nowrap">${UI.ajOutra===K?`<input type="date" class="in" data-aj="${esc(K)}" value="${t.dataCons}" style="width:150px"> <button class="sm" data-ajok="1">OK</button> <button class="sm ghost" data-ajcancel="1">cancelar</button>`:selPagarEm(t)}</td>
+   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''}</td>
+   <td class="txt nowrap">${t.mover?`<button class="sm" data-setaj="${esc(t.id)}" data-d="${t.ant}">← ${DN[wd(t.ant)]} ${br(t.ant)}</button> <button class="sm" data-setaj="${esc(t.id)}" data-d="${t.seg}">${DN[wd(t.seg)]} ${br(t.seg)} →</button>`:''} ${t.aj?`<button class="sm ghost" data-clraj="${esc(K)}">desfazer</button>`:''}</td>
+   <td><button class="sm ghost danger" data-excl="${esc(K)}" title="${t.rec?'Excluir este pagamento recorrente só nesta data':'Excluir este título da projeção'}" aria-label="Excluir ${esc(t.id)}">${ICON_LIXO}</button></td></tr>`;}).join('')}
   </tbody></table></div>`:'<div class="empty">Nenhum título neste filtro.</div>'}</section>`;
 }
 function editTable(listKey,cols,rows,addLabel){
@@ -628,7 +646,7 @@ function vImportar(){
   const mat=[1,2,3,4,5].map(n=>[1,2,3,4,5,6,7].map(w=>{let d=null;for(let i=0;i<lastDay(m);i++){const x=add(m,i);if(wd(x)===w&&Math.floor((day(x)-1)/7)+1===n){d=x;break;}}return d?{d,v:projRec(d),c:amostra(d)}:null;}));
   return `<div class="wrap" style="gap:16px">
   <section class="panel"><h2>Importar arquivos do sistema</h2>
-   <p class="hint">Anexe os relatórios como saem do sistema (.csv ou .xlsx). A ferramenta reconhece o tipo pelo cabeçalho: <b>contas a pagar</b> substitui a base inteira; <b>contas recebidas</b> e <b>contas pagas</b> são somadas por dia; a planilha diária de <b>saldo das contas</b> (DATA · BANCO · SALDO) grava o saldo de cada banco por dia. Os três últimos substituem só as datas que o arquivo cobre, então reimportar o mesmo período não duplica.</p>
+   <p class="hint">Anexe os relatórios como saem do sistema (.csv ou .xlsx). A ferramenta reconhece o tipo pelo cabeçalho: <b>contas a pagar</b> substitui a base inteira; <b>contas recebidas</b> e <b>contas pagas</b> são somadas por dia; a planilha diária de <b>saldo das contas</b> (DATA · BANCO · SALDO) grava o saldo de cada banco por dia. Pode anexar os arquivos da <b>loja e do atacado</b> juntos: no contas a pagar os títulos se somam e Ident. repetido entra uma vez; nas contas recebidas e pagas cada movimentação é guardada pelo Ident. e pela data, então a mesma movimentação nos dois arquivos (ou reimportada depois) conta uma vez só.</p>
    <label class="drop" id="drop" for="file"><b>Arraste os arquivos aqui ou clique para escolher</b><span class="muted">ContasPagar…csv · ContasRecebidas…csv · ContasPagas…csv · SALDO DAS CONTAS….xlsx · Planilha de Controle de Compras.xlsx</span><input type="file" id="file" multiple accept=".csv,.xlsx,.xls" style="max-width:100%"></label>
    <div class="log" id="log"></div>
   </section>
@@ -702,8 +720,19 @@ function tabela(rows){
   const data=rows.slice(hi+1).filter(r=>r.some(c=>String(c).trim()!==''));
   return {H,col,data};
 }
+function estabsDe(data,get){return [...new Set(data.map(r=>String(get(r,'Estabelecimento')).trim()).filter(Boolean))];}
+function ledgerMerge(kind,fm,de,ate){
+  S.mov=S.mov||{};let novas=0,repetidas=0;const tocados=new Set();
+  for(const [k,v] of Object.entries(fm)){const d=k.slice(k.lastIndexOf('|')+1),id=kind+'-'+monday(d);const doc=(S.mov[id]=S.mov[id]||{t:{}});doc.t=doc.t||{};
+    if(doc.t[k]!=null)repetidas++;else novas++;doc.t[k]=v;tocados.add(id);}
+  tocados.forEach(id=>persist('mov/'+id,150));
+  const base=S[kind==='rec'?'recebidos':'pagos'];base.dias=base.dias||{};const soma={};
+  Object.entries(S.mov).forEach(([id,doc])=>{if(!id.startsWith(kind+'-'))return;Object.entries((doc&&doc.t)||{}).forEach(([k,v])=>{const d=k.slice(k.lastIndexOf('|')+1);if(d>=de&&d<=ate)soma[d]=(soma[d]||0)+v;});});
+  for(let d=de;d<=ate;d=add(d,1)){if(soma[d])base.dias[d]=Math.round(soma[d]*100)/100;else delete base.dias[d];}
+  return {novas,repetidas};
+}
 async function importar(files){
-  const log=$('#log');const out=[];
+  const log=$('#log');const out=[];const lote={estabs:new Set(),nomes:new Set()};
   for(const file of files){
     try{
       const raw=await readFile(file);
@@ -740,31 +769,41 @@ async function importar(files){
       const isRec=H.includes('NSU')||H.includes('Sessão Caixa')||H.includes('Vendedor');
       const pagosN=data.filter(r=>toIso(get(r,'Pagamento'))).length;
       if(isRec||pagosN>data.length*0.5){
-        const key=isRec?'recebidos':'pagos';
-        const dias={};let de=null,ate=null,n=0;
-        data.forEach(r=>{if(String(get(r,'Situação')).trim()==='Estornada')return;const d=toIso(get(r,'Pagamento'));const v=pnum(get(r,'Pago'));if(!d||isNaN(v))return;
-          dias[d]=Math.round(((dias[d]||0)+v)*100)/100;n++;if(!de||d<de)de=d;if(!ate||d>ate)ate=d;});
+        // movimentações realizadas: guardadas uma a uma (Ident. + data), então a mesma movimentação vinda da loja e do atacado conta uma vez só
+        const key=isRec?'recebidos':'pagos', kind=isRec?'rec':'pag';
+        const fm={};let de=null,ate=null,n=0;
+        data.forEach((r,ix)=>{if(String(get(r,'Situação')).trim()==='Estornada')return;const d=toIso(get(r,'Pagamento'));const v=pnum(get(r,'Pago'));if(!d||isNaN(v))return;
+          const id=String(get(r,'Ident.')).trim()||('~'+[get(r,'Participante'),get(r,'Documento'),get(r,'NSU'),get(r,'Pago'),ix].join('~'));
+          const k=id+'|'+d; fm[k]=Math.round(((fm[k]||0)+v)*100)/100; n++; if(!de||d<de)de=d; if(!ate||d>ate)ate=d;});
         if(!de)throw new Error('nenhuma linha com data de pagamento e valor pago');
-        const base=S[key];base.dias=base.dias||{};
-        Object.keys(base.dias).forEach(k=>{if(k>=de&&k<=ate)delete base.dias[k];});
-        for(let d=de;d<=ate;d=add(d,1))if(dias[d])base.dias[d]=dias[d];
-        base.arquivos=(base.arquivos||[]).concat([{nome:file.name,de,ate,linhas:n,em:new Date().toISOString().slice(0,19)}]).slice(-30);
+        const r=ledgerMerge(kind,fm,de,ate);
+        const base=S[key];
+        base.arquivos=(base.arquivos||[]).concat([{nome:file.name,de,ate,linhas:n,estab:estabsDe(data,get).join(', '),em:new Date().toISOString().slice(0,19)}]).slice(-30);
         persist('base/'+key,0);
-        out.push(`<span class="ok">✓ ${esc(file.name)}: ${isRec?'contas recebidas':'contas pagas'} de ${brY(de)} a ${brY(ate)} (${n} linhas; período substituído)</span>`);
+        out.push(`<span class="ok">✓ ${esc(file.name)}: ${isRec?'contas recebidas':'contas pagas'} de ${brY(de)} a ${brY(ate)} · ${r.novas} movimentação(ões) nova(s)${r.repetidas?`, ${r.repetidas} já existiam e não foram duplicadas`:''}</span>`);
       }else{
         const rows=[];
         data.forEach(r=>{const id=String(get(r,'Ident.')).trim();if(!id)return;const venc=toIso(get(r,'Vencimento'));if(!venc)return;
           let v=pnum(get(r,'Saldo'));if(isNaN(v))v=pnum(get(r,'Total'));if(isNaN(v))v=pnum(get(r,'Valor'));
-          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),String(get(r,'Situação')).trim()]);});
+          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),String(get(r,'Situação')).trim(),String(get(r,'Estabelecimento')).trim()||('arquivo:'+file.name)]);});
         if(!rows.length)throw new Error('nenhum título com Ident. e vencimento');
-        const CH=400, n=Math.ceil(rows.length/CH), old=S.pagarMeta.chunks||0;
+        // substitui só os títulos do(s) mesmo(s) estabelecimento(s) do arquivo; no mesmo envio, os arquivos se somam; Ident. repetido entra uma vez
+        const est=new Set(rows.map(r=>r[7]));
+        const atuais=Object.keys(S.pagarChunks).filter(k=>+k.slice(1)<(S.pagarMeta.chunks||0)).sort((a,b)=>+a.slice(1)-+b.slice(1)).flatMap(k=>S.pagarChunks[k].rows||[]);
+        const mantem=atuais.filter(r=>r[7]&&(!est.has(r[7])||lote.estabs.has(r[7])));
+        const M=new Map();let rep=0;mantem.forEach(r=>M.set(r[0],r));rows.forEach(r=>{if(M.has(r[0]))rep++;M.set(r[0],r);});
+        est.forEach(e=>lote.estabs.add(e));
+        const all=[...M.values()];
+        const CH=400, n=Math.max(1,Math.ceil(all.length/CH)), old=S.pagarMeta.chunks||0;
         S.pagarChunks={};
-        for(let i=0;i<n;i++){S.pagarChunks['c'+i]={rows:rows.slice(i*CH,(i+1)*CH)};persist('pagar/c'+i,0);}
+        for(let i=0;i<n;i++){S.pagarChunks['c'+i]={rows:all.slice(i*CH,(i+1)*CH)};persist('pagar/c'+i,0);}
         if(db&&canWrite)for(let i=n;i<old;i++){const p='pagar/c'+i;queues[p]=(queues[p]||Promise.resolve()).then(()=>db.doc(p).delete()).catch(()=>{});}
-        S.pagarMeta={chunks:n,arquivo:file.name,linhas:rows.length,em:new Date().toISOString().slice(0,19)};
+        const arqs=((S.pagarMeta.arquivos)||[]).filter(a=>!a.estab||!a.estab.split(', ').some(e=>est.has(e))||lote.nomes.has(a.nome));
+        arqs.push({nome:file.name,estab:[...est].join(', '),linhas:rows.length,em:new Date().toISOString().slice(0,19)});lote.nomes.add(file.name);
+        S.pagarMeta={chunks:n,arquivo:arqs.map(a=>a.nome).join(' + '),linhas:all.length,em:new Date().toISOString().slice(0,19),arquivos:arqs};
         persist('base/pagarMeta',300);
         const vs=rows.map(r=>r[2]).sort();
-        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos, vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])} (base substituída)</span>`);
+        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos (${esc([...est].join(', '))}), vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])}${rep?` · ${rep} título(s) já existiam e não foram duplicados`:''} · base agora com ${all.length} títulos</span>`);
       }
     }catch(e){out.push(`<span class="err">✕ ${esc(file.name)}: ${esc(e.message||e)}</span>`);}
   }
@@ -947,6 +986,9 @@ document.addEventListener('click',e=>{
     $('#saldoIni').value='';const sp=saldoPartida();render();
     toast(sp.fonte==='auto'?`Saldo inicial: ${brl(sp.valor)} — ${sp.txt}`:'Nenhum saldo registrado até a segunda-feira. Anexe a planilha de saldo do dia.');return;}
   if(t.dataset.setaj){S.ajustes.map[t.dataset.setaj]=Object.assign({},S.ajustes.map[t.dataset.setaj]||{},{data:t.dataset.d,em:todayIso()});persist('cfg/ajustes',0);render();toast('Reprogramado para '+br(t.dataset.d));return;}
+  if(t.dataset.clraj&&t.dataset.clraj.startsWith('REC:')){recExc(t.dataset.clraj,{novaData:''});render();return;}
+  if(t.dataset.excl&&t.dataset.excl.startsWith('REC:')){recExc(t.dataset.excl,{novoValor:0});render();toast('Pagamento recorrente excluído nesta data · veja em “Excluídos” para restaurar');return;}
+  if(t.dataset.restaura&&t.dataset.restaura.startsWith('REC:')){recExc(t.dataset.restaura,{novoValor:''});render();toast('Pagamento recorrente restaurado');return;}
   if(t.dataset.clraj){const o=S.ajustes.map[t.dataset.clraj];if(o){delete o.data;if(!o.excluido)delete S.ajustes.map[t.dataset.clraj];}persist('cfg/ajustes',0);render();return;}
   if(t.dataset.excl){const id=t.dataset.excl;S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{excluido:true,em:todayIso()});persist('cfg/ajustes',0);render();toast('Título '+id+' excluído da projeção · veja em “Excluídos” para restaurar');return;}
   if(t.dataset.restaura){const o=S.ajustes.map[t.dataset.restaura];if(o){delete o.excluido;if(!o.data)delete S.ajustes.map[t.dataset.restaura];}persist('cfg/ajustes',0);render();toast('Título restaurado');return;}
@@ -978,8 +1020,10 @@ function onChange(t){
   if(t.id==='saldoIni'){const v=pnum(t.value);S.geral.saldoSemana=S.geral.saldoSemana||{};if(t.value.trim()==='')delete S.geral.saldoSemana[UI.semana];else if(!isNaN(v))S.geral.saldoSemana[UI.semana]=v;persist('cfg/geral',0);render();return;}
   if(t.id==='saldoMes'){const v=pnum(t.value);S.geral.saldoMes=S.geral.saldoMes||{};if(t.value.trim()==='')delete S.geral.saldoMes[t.dataset.mes];else if(!isNaN(v))S.geral.saldoMes[t.dataset.mes]=v;persist('cfg/geral',0);render();return;}
   if(t.dataset.map){const m=t.dataset.map,d=t.dataset.d,v=pnum(t.value);S.geral[m]=S.geral[m]||{};if(t.value.trim()===''||isNaN(v))delete S.geral[m][d];else S.geral[m][d]=v;persist('cfg/geral',0);render();return;}
+  if(t.dataset.ajsel!==undefined&&t.dataset.ajsel.startsWith('REC:')&&t.value!=='__outra'){recExc(t.dataset.ajsel,{novaData:t.value});render();toast('Recorrente movido para '+DN[wd(t.value)]+' '+br(t.value));return;}
   if(t.dataset.ajsel!==undefined){const id=t.dataset.ajsel;if(t.value==='__outra'){UI.ajOutra=id;render();const i=document.querySelector('input[data-aj="'+CSS.escape(id)+'"]');if(i){i.focus();try{i.showPicker&&i.showPicker();}catch(e){}}return;}
     S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{data:t.value,em:todayIso()});persist('cfg/ajustes',0);render();toast('Pagamento de '+id+' para '+DN[wd(t.value)]+' '+br(t.value));return;}
+  if(t.dataset.aj!==undefined&&t.dataset.aj.startsWith('REC:')){UI.ajOutra=null;if(dataValida(t.value)){recExc(t.dataset.aj,{novaData:t.value});toast('Recorrente movido para '+brY(t.value));}render();return;}
   if(t.dataset.aj!==undefined){const id=t.dataset.aj;UI.ajOutra=null;if(dataValida(t.value)){S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{data:t.value,em:todayIso()});persist('cfg/ajustes',0);toast('Pagamento de '+id+' para '+brY(t.value));}render();return;}
   if(t.dataset.list){const k=t.dataset.list,i=+t.dataset.i,f=t.dataset.k;
     if(k==='depara'){const keys=Object.keys(S.depara.map);const old=keys[i];const grp=S.depara.map[old];
@@ -1012,7 +1056,8 @@ function applySnap(col,snap){
     else if(col==='base'){if(d.id==='pagarMeta')S.pagarMeta=v;else if(d.id==='recebidos'||d.id==='pagos'||d.id==='saldos')S[d.id]=Object.assign({dias:{},arquivos:[]},v);}
     else if(col==='pagar')S.pagarChunks[d.id]=v;
     else if(col==='compras')S.compras[d.id]=v;
-    else if(col==='controle')S.controle[d.id]=v;});
+    else if(col==='controle')S.controle[d.id]=v;
+    else if(col==='mov')S.mov[d.id]=v;});
   snap.docChanges().forEach(ch=>{if(ch.type==='removed'&&col==='pagar')delete S.pagarChunks[ch.doc.id];});
   loaded[col]=true;scheduleRender();
 }
@@ -1036,6 +1081,7 @@ async function boot(){
   db.collection('pagar').onSnapshot(s=>applySnap('pagar',s),onErr);
   db.collection('compras').onSnapshot(s=>applySnap('compras',s),onErr);
   db.collection('controle').onSnapshot(s=>applySnap('controle',s),onErr);
+  db.collection('mov').onSnapshot(s=>applySnap('mov',s),onErr);
   setStatus('Dados sincronizados · as alterações ficam salvas automaticamente');
 }
 
