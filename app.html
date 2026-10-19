@@ -88,6 +88,8 @@ table.proj.lado thead tr.sub2 th.rl{background:var(--deep);opacity:.9}
 table.proj.lado thead th{position:static}
 table.proj.lado thead tr:first-child th:first-child{position:sticky;left:0;z-index:2}
 table.proj.lado thead tr.sub2 th:first-child{min-width:0;white-space:nowrap}
+div.diasctl{gap:6px;align-items:center}
+div.diasctl button[aria-pressed="false"]{opacity:.55;text-decoration:line-through}
 button.tg{all:unset;cursor:pointer;display:inline-block;width:18px;text-align:center;margin-right:4px;font-size:12px;transition:transform .15s}
 button.tg[aria-expanded="false"]{transform:rotate(-90deg)}
 button.tg:focus-visible{outline:2px solid #fff;outline-offset:1px;border-radius:3px}
@@ -406,8 +408,12 @@ function amostra(iso){const r=recRange();if(!r)return 0;const N=+S.geral.mesesHi
   for(let d=from<r[0]?r[0]:from;d<m0&&d<=r[1];d=add(d,1))if(wd(d)===w&&Math.floor((day(d)-1)/7)+1===n)c++;return c;}
 function grupos(){return (S.geral.grupos&&S.geral.grupos.length)?S.geral.grupos:DEF_GRUPOS;}
 // saldo real de um dia = soma das contas importadas + dinheiro informado (null se não houver saldo bancário do dia)
-function saldoReal(d){const b=(S.saldos.dias||{})[d];if(!b)return null;const t=Object.values(b).reduce((s,v)=>s+(+v||0),0);return t+(+(S.geral.dinheiro||{})[d]||0);}
-function ultimoSaldoAntes(iso){const ks=Object.keys(S.saldos.dias||{}).filter(k=>k<=iso).sort();return ks.length?ks[ks.length-1]:null;}
+// a planilha de saldo de uma data traz o saldo no FIM daquele dia (+ espécie informada para a mesma data)
+function saldoContas(k){const b=(S.saldos.dias||{})[k];if(!b)return null;return Object.values(b).reduce((s,v)=>s+(+v||0),0)+(+(S.geral.dinheiro||{})[k]||0);}
+const saldoManual=d=>{const m=(S.geral.saldoMan||{})[d];return m!=null&&m!==''&&!isNaN(+m)?+m:null;};
+// saldo de abertura do dia d: informado à mão > fim do dia anterior na planilha
+function saldoReal(d){const m=saldoManual(d);if(m!=null)return m;return saldoContas(add(d,-1));}
+function ultimoSaldoAntes(iso){const ks=Object.keys(S.saldos.dias||{}).map(k=>add(k,1)).concat(Object.keys(S.geral.saldoMan||{}).filter(k=>saldoManual(k)!=null)).filter(k=>k<=iso).sort();return ks.length?ks[ks.length-1]:null;}
 // saldo de partida da semana: digitado > último saldo das contas + projeção dos dias entre ele e a segunda
 function saldoPartida(){
   const W=UI.semana, sAtual=monday(todayIso());
@@ -425,8 +431,8 @@ function saldoPartida(){
   if(man!=null&&man!=='')return {valor:+man,fonte:'manual',txt:'digitado no topo da página'};
   const L=ultimoSaldoAntes(UI.semana);
   if(!L)return {valor:0,fonte:'nenhum',txt:'importe o saldo das contas ou digite no topo'};
-  const din=+(S.geral.dinheiro||{})[L]||0, val=saldoReal(L);
-  return {valor:val,fonte:'auto',L,base:val,din,txt:`${L===UI.semana?'saldo registrado na segunda':'último saldo registrado'} (${br(L)})${din?'':' · sem espécie informada'}`};
+  const kc=add(L,-1), manual=saldoManual(L)!=null, din=manual?0:(+(S.geral.dinheiro||{})[kc]||0), val=saldoReal(L);
+  return {valor:val,fonte:'auto',L,kc,manual,base:val,din,txt:manual?`saldo informado à mão para ${br(L)}`:`saldo das contas no fim de ${br(kc)}${L===UI.semana?'':' (último registrado)'}${din?'':' · sem espécie informada'}`};
 }
 function projecao(dias,saldoIni,opts){
   const a=dias[0],b=dias[dias.length-1];
@@ -488,8 +494,12 @@ function pagRealGrupos(d){
     const g=pl?(dep[pl]||'Outros'):SEM_GRUPO;out[g]=(out[g]||0)+(+v||0);});
   return tem?out:null;
 }
+const ocultos=()=>new Set((S.geral.diasOcultos||[]).map(Number));
+function diasCtl(){const oc=ocultos();return `<div class="chips diasctl" role="group" aria-label="Dias da semana exibidos"><span class="muted" style="font-size:12px">Dias exibidos:</span>${[1,2,3,4,5,6,7].map(w=>`<button class="sm" data-diaoc="${w}" aria-pressed="${!oc.has(w)}" title="${oc.has(w)?'Mostrar':'Ocultar'} ${DNL[w]}">${DN[w]}</button>`).join('')}</div>`;}
+function avisoOcultos(C){const oc=ocultos();const h=C.filter(c=>oc.has(wd(c.d))&&(Math.abs(c.recT)>0.005||Math.abs(c.pagT)>0.005));return h.length?`<p class="hint">Oculto${h.length>1?'s':''}: ${h.map(c=>`${DNL[wd(c.d)]} ${br(c.d)} (receb. ${fmt(c.recT)} · pag. ${fmt(c.pagT)})`).join('; ')}. Esses valores continuam nos totais da semana e no saldo.</p>`:'';}
 function projTable(P,opts){
   const C=P.cols, G=grupos(), weekly=opts.weekly, F=UI.fold||{};
+  const oc=ocultos(), CM=f=>C.map((c,i)=>oc.has(wd(c.d))?'':f(c,i)).join('');
   const hoje=todayIso();
   const RG=C.map(c=>c.d<=hoje?pagRealGrupos(c.d):null);
   const nul=v=>v==null;
@@ -499,15 +509,16 @@ function projTable(P,opts){
   // linha: f = orçado do dia, r = realizado do dia (null = sem dado)
   const row=(label,f,r,k,g,total)=>{const R=C.map((c,i)=>r?r(c,i):null);
     const tdX=v=>r?tdR(v):'<td class="rl"></td>';
-    return `<tr class="${k||''}" ${g&&F[g]?'hidden':''}><td>${label}</td>${C.map((c,i)=>tdO(f(c))+tdX(R[i])).join('')}${total===false?'<td></td><td class="rl"></td>':tdO(C.reduce((s,c)=>s+(f(c)||0),0))+tdX(r?sumR(R):null)}</tr>`;};
+    return `<tr class="${k||''}" ${g&&F[g]?'hidden':''}><td>${label}</td>${CM((c,i)=>tdO(f(c))+tdX(R[i]))}${total===false?'<td></td><td class="rl"></td>':tdO(C.reduce((s,c)=>s+(f(c)||0),0))+tdX(r?sumR(R):null)}</tr>`;};
   const inRow=(label,map,g,real)=>{const val=d=>(S.geral[map]||{})[d];const inp=c=>`<input class="in cell" data-map="${map}" data-d="${c.d}" inputmode="decimal" value="${val(c.d)!=null&&val(c.d)!==''?(+val(c.d)).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" aria-label="${label} ${br(c.d)}">`;
-    return `<tr ${g&&F[g]?'hidden':''}><td>${label}</td>${C.map(c=>real?`<td class="zero"></td><td class="rl">${inp(c)}</td>`:`<td>${inp(c)}</td><td class="rl zero"></td>`).join('')}<td>${real?'':fmt(C.reduce((s,c)=>s+(+val(c.d)||0),0))}</td><td class="rl"></td></tr>`;};
+    return `<tr ${g&&F[g]?'hidden':''}><td>${label}</td>${CM(c=>real?`<td class="zero"></td><td class="rl">${inp(c)}</td>`:`<td>${inp(c)}</td><td class="rl zero"></td>`)}<td>${real?'':fmt(C.reduce((s,c)=>s+(+val(c.d)||0),0))}</td><td class="rl"></td></tr>`;};
   const tg=(k,label)=>`<button class="tg" data-fold="${k}" aria-expanded="${!F[k]}" title="${F[k]?'Mostrar':'Ocultar'} detalhes">▾</button>${label}`;
-  const sec=(label,k)=>`<tr class="sec"><td>${k?tg(k,label):label}</td>${C.map(()=>'<td></td><td></td>').join('')}<td></td><td></td></tr>`;
-  let h=`<div class="scroll"><table class="proj lado"><thead><tr><th rowspan="2">Classificação</th>${C.map(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`).join('')}<th colspan="2">Total</th></tr>
-   <tr class="sub2">${C.map(()=>'<th>Orçado</th><th class="rl">Realizado</th>').join('')}<th>Orçado</th><th class="rl">Realizado</th></tr></thead><tbody>`;
-  h+=`<tr class="key"><td>${tg('ini','Saldo inicial do dia')}</td>${C.map(c=>tdO(c.ini)+tdR(c.saldoReal)).join('')}<td></td><td class="rl"></td></tr>`;
-  h+=inRow('Dinheiro em espécie do dia (informar no realizado)','dinheiro','ini',true);
+  const sec=(label,k)=>`<tr class="sec"><td>${k?tg(k,label):label}</td>${CM(()=>'<td></td><td></td>')}<td></td><td></td></tr>`;
+  let h=`<div class="scroll"><table class="proj lado"><thead><tr><th rowspan="2">Classificação</th>${CM(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`)}<th colspan="2">Total</th></tr>
+   <tr class="sub2">${CM(()=>'<th>Orçado</th><th class="rl">Realizado</th>')}<th>Orçado</th><th class="rl">Realizado</th></tr></thead><tbody>`;
+  h+=`<tr class="key"><td>${tg('ini','Saldo inicial do dia')}</td>${CM(c=>tdO(c.ini)+tdR(c.saldoReal))}<td></td><td class="rl"></td></tr>`;
+  h+=`<tr ${F.ini?'hidden':''}><td>Dinheiro em espécie no fim do dia anterior (informar)</td>${CM(c=>{const k=add(c.d,-1),v=(S.geral.dinheiro||{})[k];return `<td class="zero"></td><td class="rl"><input class="in cell" data-map="dinheiro" data-d="${k}" inputmode="decimal" value="${v!=null&&v!==''?(+v).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" aria-label="Dinheiro em espécie no fim de ${br(k)}"></td>`;})}<td></td><td class="rl"></td></tr>`;
+  h+=inRow('Saldo inicial informado à mão (substitui a planilha)','saldoMan','ini',true);
   h+=row('diferença saldo registrado x projetado para o início do dia',c=>0,(c)=>c.saldoReal==null?null:c.saldoReal-c.iniProj,'sub','ini',false).replace(/<td class="zero">–<\/td>/g,'<td></td>');
   h+=sec('Recebimentos','rec');
   h+=row('Média das contas recebidas na mesma ocorrência do dia da semana (últimos meses)',c=>c.recP,c=>c.recReal,null,'rec');
@@ -518,15 +529,15 @@ function projTable(P,opts){
   G.forEach(g=>{const tot=C.reduce((s,c)=>s+(c.g[g]||0),0)+RG.reduce((s,x)=>s+((x&&x[g])||0),0);if(tot>0.005||g!=='Outros')h+=row(g,c=>c.g[g]||0,(c,i)=>RG[i]?(RG[i][g]||0):null,null,'pag');});
   if(temSem)h+=row(SEM_GRUPO,c=>0,(c,i)=>RG[i]?(RG[i][SEM_GRUPO]||0):null,'sub','pag');
   h+=inRow('Ajuste manual de pagamentos (+/−)','ajPag','pag');
-  h+=`<tr class="tot"><td>${tg('tot','Total de pagamentos')}</td>${C.map(c=>tdO(c.pagT)+tdR(c.pagReal)).join('')}${tdO(C.reduce((s,c)=>s+c.pagT,0))}${tdR(sumR(C.map(c=>c.pagReal)))}</tr>`;
+  h+=`<tr class="tot"><td>${tg('tot','Total de pagamentos')}</td>${CM(c=>tdO(c.pagT)+tdR(c.pagReal))}${tdO(C.reduce((s,c)=>s+c.pagT,0))}${tdR(sumR(C.map(c=>c.pagReal)))}</tr>`;
   h+=row('dos quais: contas a pagar (sistema)',c=>c.cp,null,'sub','tot');
   h+=row('dos quais: orçado recorrente',c=>c.rec,null,'sub','tot');
   h+=row('dos quais: lançamentos manuais',c=>c.man,null,'sub','tot');
   if(weekly)h+=row('inclui atrasados lançados na segunda',c=>c.atras,null,'sub','tot');
   h+=row('Movimento do dia (receb. − pag.)',c=>c.mov,c=>(c.recReal==null&&c.pagReal==null)?null:(c.recReal||0)-(c.pagReal||0),'key');
-  h+=`<tr class="saldo"><td>Saldo final do dia</td>${C.map(c=>tdO(c.fim)+tdR(saldoReal(add(c.d,1)))).join('')}${tdO(C[C.length-1].fim)}${tdR(saldoReal(add(C[C.length-1].d,1)))}</tr>`;
+  h+=`<tr class="saldo"><td>Saldo final do dia</td>${CM(c=>tdO(c.fim)+tdR(saldoReal(add(c.d,1))))}${tdO(C[C.length-1].fim)}${tdR(saldoReal(add(C[C.length-1].d,1)))}</tr>`;
   h+=sec('Alertas');
-  h+=`<tr><td>Títulos a mover para terça ou sexta</td>${C.map(c=>`<td class="${c.moverN?'flag':'zero'}">${c.moverN?c.moverN+' · '+fmt0(c.moverV):'–'}</td><td class="rl"></td>`).join('')}<td>${C.reduce((s,c)=>s+c.moverN,0)||'–'}</td><td class="rl"></td></tr>`;
+  h+=`<tr><td>Títulos a mover para terça ou sexta</td>${CM(c=>`<td class="${c.moverN?'flag':'zero'}">${c.moverN?c.moverN+' · '+fmt0(c.moverV):'–'}</td><td class="rl"></td>`)}<td>${C.reduce((s,c)=>s+c.moverN,0)||'–'}</td><td class="rl"></td></tr>`;
   return h+'</tbody></table></div>';
 }
 function kpis(P){
@@ -557,10 +568,10 @@ function partidaPanel(){
    <p class="hint">Semana futura: começa com o saldo final projetado das semanas anteriores, que já inclui os títulos atrasados e os pagamentos previstos até a véspera. Para usar outro valor, digite o saldo no topo da página; apague para voltar ao automático.</p></section>`;
   if(sp.fonte!=='auto')return '';
   return `<section class="panel"><h3>De onde vem o saldo inicial</h3><dl class="meta">
-   <dt>Contas em ${brY(sp.L)}</dt><dd>${brl(sp.base-sp.din)}</dd>
-   <dt>Dinheiro em espécie em ${br(sp.L)}</dt><dd>${sp.din?brl(sp.din):'<span class="muted">não informado — digite na linha “Dinheiro em espécie” ou em Importar e configurar</span>'}</dd>
+   ${sp.manual?`<dt>Saldo informado à mão para a abertura de ${brY(sp.L)}</dt><dd>${brl(sp.base)}</dd>`:`<dt>Contas no fim de ${brY(sp.kc)}</dt><dd>${brl(sp.base-sp.din)}</dd>
+   <dt>Dinheiro em espécie no fim de ${br(sp.kc)}</dt><dd>${sp.din?brl(sp.din):'<span class="muted">não informado — digite na linha “Dinheiro em espécie” ou em Importar e configurar</span>'}</dd>`}
    <dt>Saldo inicial da semana</dt><dd>${brl(sp.valor)}</dd></dl>
-   <p class="hint">A semana começa com o saldo registrado na segunda-feira; enquanto ele não chega, usa o último saldo registrado antes dela. Depois de anexar a planilha de saldo do dia, clique em “Atualizar saldo”. Para usar outro valor, digite o saldo no topo da página; apague para voltar ao automático.</p></section>`;
+   <p class="hint">O saldo da planilha de cada data é o saldo no fim daquele dia e vira a abertura do dia seguinte (a planilha de domingo abre a segunda). Um saldo informado à mão na linha “Saldo inicial informado à mão” vale no lugar da planilha. Enquanto não há saldo para a segunda, usa o último registrado antes dela. Depois de anexar a planilha de saldo do dia, clique em “Atualizar saldo”. Para usar outro valor, digite o saldo no topo da página; apague para voltar ao automático.</p></section>`;
 }
 function mensaisPanel(P){
   const L=P.itens.filter(x=>x.origem==='Orçado recorrente'&&(S.recorrentes.itens||[]).some(r=>r.id===x.recId&&r.freq==='Mensal')).sort((a,b)=>a.data<b.data?-1:a.data>b.data?1:b.valor-a.valor);
@@ -570,7 +581,7 @@ function mensaisPanel(P){
 function vSemana(P){
   const sel=UI.diaSel&&P.cols.find(c=>c.d===UI.diaSel);
   return `<div class="wrap" style="gap:16px">${kpis(P)}
-  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${projTable(P,{weekly:true})}</section>
+  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${diasCtl()}${projTable(P,{weekly:true})}${avisoOcultos(P.cols)}</section>
   ${sel?`<section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos de ${DNL[wd(sel.d)]}, ${brY(sel.d)}</h2><button class="sm" data-act="fechaDia">Fechar</button></div>${dayBlock(sel,{marks:true})}</section>`:''}
   <div class="grid2">${partidaPanel()}${mensaisPanel(P)}</div></div>`;
 }
@@ -578,22 +589,23 @@ function vCliente(P){
   const C=P.cols, rec=C.reduce((s,c)=>s+c.recT,0), pag=C.reduce((s,c)=>s+c.pagT,0), G=grupos();
   const min=C.reduce((m,c)=>c.fim<m.fim?c:m,C[0]);
   const gl=G.map(g=>[g,C.map(c=>c.g[g]||0)]).filter(([g,v])=>v.some(x=>x>0.005));
-  const dias=C.filter(c=>c.itens.length);
+  const oc=ocultos(), V=C.map(c=>!oc.has(wd(c.d))), CV=C.filter((c,i)=>V[i]);
+  const dias=CV.filter(c=>c.itens.length);
   return `<div class="wrap" style="gap:16px">
-  <section class="panel"><div class="row" style="justify-content:space-between" data-noprint><span class="muted" style="font-size:12px">Resumo para enviar ao cliente</span>
+  <section class="panel"><div class="row" style="justify-content:space-between" data-noprint><span class="muted" style="font-size:12px">Resumo para enviar ao cliente</span>${diasCtl()}
    <div class="row"><button class="sm" data-act="copyResumo">Copiar resumo em imagem (WhatsApp)</button><button class="sm primary" data-act="xlsxCliente">Exportar Excel (resumo + pagamentos)</button></div></div>
    <div id="capResumo" style="display:flex;flex-direction:column;gap:12px;min-width:0"><div class="row" style="gap:12px"><img src="${document.querySelector('.brand img').src}" alt="" style="height:40px"><h2>Resumo da projeção — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}</h2></div>
-   <div class="scroll"><table class="proj"><thead><tr><th></th>${C.map(c=>`<th>${br(c.d)}<span class="wd">${DN[wd(c.d)]}</span></th>`).join('')}<th>Semana</th></tr></thead><tbody>
-    <tr class="key"><td>Saldo inicial</td>${C.map(c=>`<td class="${cls(c.ini)}">${fmt(c.ini)}</td>`).join('')}<td class="${cls(C[0].ini)}">${fmt(C[0].ini)}</td></tr>
-    <tr><td>(+) Recebimentos previstos</td>${C.map(c=>`<td>${fmt(c.recT)}</td>`).join('')}<td>${fmt(rec)}</td></tr>
-    <tr><td>(−) Pagamentos previstos</td>${C.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr>
-    <tr class="saldo"><td>(=) Saldo final do dia</td>${C.map(c=>`<td class="${cls(c.fim)}">${fmt(c.fim)}</td>`).join('')}<td class="${cls(C[6].fim)}">${fmt(C[6].fim)}</td></tr>
+   <div class="scroll"><table class="proj"><thead><tr><th></th>${CV.map(c=>`<th>${br(c.d)}<span class="wd">${DN[wd(c.d)]}</span></th>`).join('')}<th>Semana</th></tr></thead><tbody>
+    <tr class="key"><td>Saldo inicial</td>${CV.map(c=>`<td class="${cls(c.ini)}">${fmt(c.ini)}</td>`).join('')}<td class="${cls(C[0].ini)}">${fmt(C[0].ini)}</td></tr>
+    <tr><td>(+) Recebimentos previstos</td>${CV.map(c=>`<td>${fmt(c.recT)}</td>`).join('')}<td>${fmt(rec)}</td></tr>
+    <tr><td>(−) Pagamentos previstos</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr>
+    <tr class="saldo"><td>(=) Saldo final do dia</td>${CV.map(c=>`<td class="${cls(c.fim)}">${fmt(c.fim)}</td>`).join('')}<td class="${cls(C[6].fim)}">${fmt(C[6].fim)}</td></tr>
    </tbody></table></div>
-   <p class="hint">Menor saldo: <b>${brl(min.fim)}</b> em ${DNL[wd(min.d)]}, ${br(min.d)}.</p>
+   ${avisoOcultos(C)}<p class="hint">Menor saldo: <b>${brl(min.fim)}</b> em ${DNL[wd(min.d)]}, ${br(min.d)}.</p>
    <h3>Pagamentos previstos por grupo</h3>
-   <div class="scroll"><table class="proj"><thead><tr><th>Grupo</th>${C.map(c=>`<th>${DN[wd(c.d)]}</th>`).join('')}<th>Semana</th></tr></thead><tbody>
-   ${gl.map(([g,v])=>`<tr><td>${esc(g)}</td>${v.map(x=>`<td class="${cls(x)}">${fmt(x)}</td>`).join('')}<td><b>${fmt(v.reduce((a,b)=>a+b,0))}</b></td></tr>`).join('')}
-   <tr class="tot"><td>Total</td>${C.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr></tbody></table></div>
+   <div class="scroll"><table class="proj"><thead><tr><th>Grupo</th>${CV.map(c=>`<th>${DN[wd(c.d)]}</th>`).join('')}<th>Semana</th></tr></thead><tbody>
+   ${gl.map(([g,v])=>`<tr><td>${esc(g)}</td>${v.map((x,i)=>V[i]?`<td class="${cls(x)}">${fmt(x)}</td>`:'').join('')}<td><b>${fmt(v.reduce((a,b)=>a+b,0))}</b></td></tr>`).join('')}
+   <tr class="tot"><td>Total</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr></tbody></table></div>
   </div></section>
   <section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos por dia</h2><span class="muted" style="font-size:12px">Maior valor primeiro · inclui contas a pagar, orçado recorrente e lançamentos manuais</span></div>
    ${dias.length?`<div class="days">${dias.map(c=>dayBlock(c,{copy:true})).join('')}</div>`:'<div class="empty">Nenhum pagamento previsto nesta semana.</div>'}
@@ -720,8 +732,8 @@ function saldosPanel(){
   if(!ks.length)return `<section class="panel"><h3>Saldo das contas</h3><div class="empty">Anexe a planilha diária “SALDO DAS CONTAS” (colunas DATA, BANCO, SALDO) para o saldo inicial da semana sair automático.</div></section>`;
   const bancos=[...new Set(ks.flatMap(k=>Object.keys(S.saldos.dias[k])))];
   return `<section class="panel"><h3>Saldo das contas — últimos dias importados</h3><p class="hint">O dinheiro em espécie não vem na planilha: digite o valor de cada dia (ou peça aos colaboradores para incluir uma linha “DINHEIRO” na planilha).</p>
-  <div class="scroll"><table class="list edit"><thead><tr><th class="txt">Data</th>${bancos.map(b=>`<th>${esc(b)}</th>`).join('')}<th>Dinheiro</th><th>Total</th></tr></thead><tbody>
-  ${ks.map(k=>`<tr><td class="txt">${DN[wd(k)]} ${brY(k)}</td>${bancos.map(b=>{const v=S.saldos.dias[k][b];return `<td class="${v<0?'neg':''}">${v==null?'·':fmt(v)}</td>`;}).join('')}<td class="num"><input class="in" data-map="dinheiro" data-d="${k}" inputmode="decimal" value="${(S.geral.dinheiro||{})[k]!=null?(+S.geral.dinheiro[k]).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" style="min-width:110px"></td><td class="${saldoReal(k)<0?'neg':''}"><b>${fmt(saldoReal(k))}</b></td></tr>`).join('')}
+  <div class="scroll"><table class="list edit"><thead><tr><th class="txt">Data (fim do dia)</th>${bancos.map(b=>`<th>${esc(b)}</th>`).join('')}<th>Dinheiro</th><th>Total · abre o dia seguinte</th></tr></thead><tbody>
+  ${ks.map(k=>`<tr><td class="txt">${DN[wd(k)]} ${brY(k)}</td>${bancos.map(b=>{const v=S.saldos.dias[k][b];return `<td class="${v<0?'neg':''}">${v==null?'·':fmt(v)}</td>`;}).join('')}<td class="num"><input class="in" data-map="dinheiro" data-d="${k}" inputmode="decimal" value="${(S.geral.dinheiro||{})[k]!=null?(+S.geral.dinheiro[k]).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" style="min-width:110px"></td><td class="${saldoContas(k)<0?'neg':''}"><b>${fmt(saldoContas(k))}</b></td></tr>`).join('')}
   </tbody></table></div></section>`;
 }
 function vImportar(){
@@ -1020,15 +1032,15 @@ async function baixarArquivo(nome,blob){
 }
 async function xlsxCliente(P){
   if(!window.XLSX){toast('O gerador de Excel não carregou (precisa de internet na primeira abertura). Recarregue a página.');return;}
-  const C=P.cols, wb=XLSX.utils.book_new();
-  const r1=[[`Resumo da projeção de caixa — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}`],[],['',...C.map(c=>`${br(c.d)} ${DN[wd(c.d)]}`),'Semana'],
-    ['Saldo inicial',...C.map(c=>+c.ini.toFixed(2)),+C[0].ini.toFixed(2)],['(+) Recebimentos previstos',...C.map(c=>+c.recT.toFixed(2)),+C.reduce((s,c)=>s+c.recT,0).toFixed(2)],
-    ['(−) Pagamentos previstos',...C.map(c=>+c.pagT.toFixed(2)),+C.reduce((s,c)=>s+c.pagT,0).toFixed(2)],['(=) Saldo final do dia',...C.map(c=>+c.fim.toFixed(2)),+C[6].fim.toFixed(2)],[],['Pagamentos por grupo']];
-  grupos().forEach(g=>{const v=C.map(c=>c.g[g]||0);if(v.some(x=>x>0.005))r1.push([g,...v.map(x=>+x.toFixed(2)),+v.reduce((a,b)=>a+b,0).toFixed(2)]);});
-  const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...C.map(()=>({wch:14})),{wch:15}];
+  const C=P.cols, wb=XLSX.utils.book_new(), oc=ocultos(), V=C.map(c=>!oc.has(wd(c.d))), CV=C.filter((c,i)=>V[i]);
+  const r1=[[`Resumo da projeção de caixa — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}`],[],['',...CV.map(c=>`${br(c.d)} ${DN[wd(c.d)]}`),'Semana'],
+    ['Saldo inicial',...CV.map(c=>+c.ini.toFixed(2)),+C[0].ini.toFixed(2)],['(+) Recebimentos previstos',...CV.map(c=>+c.recT.toFixed(2)),+C.reduce((s,c)=>s+c.recT,0).toFixed(2)],
+    ['(−) Pagamentos previstos',...CV.map(c=>+c.pagT.toFixed(2)),+C.reduce((s,c)=>s+c.pagT,0).toFixed(2)],['(=) Saldo final do dia',...CV.map(c=>+c.fim.toFixed(2)),+C[6].fim.toFixed(2)],[],['Pagamentos por grupo']];
+  grupos().forEach(g=>{const v=C.map(c=>c.g[g]||0);if(v.some(x=>x>0.005))r1.push([g,...v.filter((x,i)=>V[i]).map(x=>+x.toFixed(2)),+v.reduce((a,b)=>a+b,0).toFixed(2)]);});
+  const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...CV.map(()=>({wch:14})),{wch:15}];
   XLSX.utils.book_append_sheet(wb,s1,'Resumo');
   // lista no formato do exemplo: blocos de 5 colunas lado a lado, 4 por faixa
-  const dias=C.filter(c=>c.itens.length), aoa=[], merges=[];let top=1;
+  const dias=CV.filter(c=>c.itens.length), aoa=[], merges=[];let top=1;
   for(let b=0;b<dias.length;b+=4){const band=dias.slice(b,b+4);const h=Math.max(...band.map(c=>c.itens.length));
     band.forEach((c,j)=>{const c0=1+j*6;(aoa[top]=aoa[top]||[])[c0]=`Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})`;merges.push({s:{r:top,c:c0},e:{r:top,c:c0+4}});
       c.itens.forEach((x,k)=>{const r=top+1+k;aoa[r]=aoa[r]||[];aoa[r][c0]=D(x.data);aoa[r][c0+1]=x.desc;aoa[r][c0+2]=+x.valor.toFixed(2);aoa[r][c0+3]=x.forma;aoa[r][c0+4]=x.plano;});
@@ -1050,6 +1062,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.tab){UI.tab=t.dataset.tab;tryLS('pp_tab',UI.tab);render();window.scrollTo({top:0});return;}
   if(t.id==='prevW'){UI.semana=add(UI.semana,-7);UI.diaSel=null;UI.mes=null;render();return;}
   if(t.id==='nextW'){UI.semana=add(UI.semana,7);UI.diaSel=null;UI.mes=null;render();return;}
+  if(t.dataset.diaoc){const w=+t.dataset.diaoc;const o=ocultos();if(o.has(w))o.delete(w);else{if(o.size>=6){toast('Deixe pelo menos um dia visível');return;}o.add(w);}S.geral.diasOcultos=[...o].sort();persist('cfg/geral',0);render();const b=document.querySelector('[data-diaoc="'+w+'"]');if(b)b.focus();return;}
   if(t.dataset.fold){UI.fold=Object.assign({},UI.fold||{});UI.fold[t.dataset.fold]=!UI.fold[t.dataset.fold];tryLS('pp_fold',JSON.stringify(UI.fold));render();const b=document.querySelector('[data-fold="'+t.dataset.fold+'"]');if(b)b.focus();return;}
   if(t.dataset.dia){UI.diaSel=UI.diaSel===t.dataset.dia?null:t.dataset.dia;render();return;}
   const a=t.dataset.act;
