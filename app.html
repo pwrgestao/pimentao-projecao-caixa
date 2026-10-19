@@ -88,6 +88,8 @@ table.proj.lado thead tr.sub2 th.rl{background:var(--deep);opacity:.9}
 table.proj.lado thead th{position:static}
 table.proj.lado thead tr:first-child th:first-child{position:sticky;left:0;z-index:2}
 table.proj.lado thead tr.sub2 th:first-child{min-width:0;white-space:nowrap}
+table.proj.lado.semtotal thead tr:first-child>:last-child,table.proj.lado.semtotal thead tr.sub2>:nth-last-child(-n+2),table.proj.lado.semtotal tbody tr>:nth-last-child(-n+2){display:none}
+table.proj.semtotal:not(.lado) tr>:last-child{display:none}
 div.diasctl{gap:6px;align-items:center}
 div.diasctl button[aria-pressed="false"]{opacity:.55;text-decoration:line-through}
 button.tg{all:unset;cursor:pointer;display:inline-block;width:18px;text-align:center;margin-right:4px;font-size:12px;transition:transform .15s}
@@ -495,8 +497,8 @@ function pagRealGrupos(d){
   return tem?out:null;
 }
 const ocultos=()=>new Set((S.geral.diasOcultos||[]).map(Number));
-function diasCtl(){const oc=ocultos();return `<div class="chips diasctl" role="group" aria-label="Dias da semana exibidos"><span class="muted" style="font-size:12px">Dias exibidos:</span>${[1,2,3,4,5,6,7].map(w=>`<button class="sm" data-diaoc="${w}" aria-pressed="${!oc.has(w)}" title="${oc.has(w)?'Mostrar':'Ocultar'} ${DNL[w]}">${DN[w]}</button>`).join('')}</div>`;}
-function avisoOcultos(C){const oc=ocultos();const h=C.filter(c=>oc.has(wd(c.d))&&(Math.abs(c.recT)>0.005||Math.abs(c.pagT)>0.005));return h.length?`<p class="hint">Oculto${h.length>1?'s':''}: ${h.map(c=>`${DNL[wd(c.d)]} ${br(c.d)} (receb. ${fmt(c.recT)} · pag. ${fmt(c.pagT)})`).join('; ')}. Esses valores continuam nos totais da semana e no saldo.</p>`:'';}
+function diasCtl(){const oc=ocultos();return `<div class="chips diasctl" role="group" aria-label="Dias da semana exibidos"><span class="muted" style="font-size:12px">Dias exibidos:</span>${[1,2,3,4,5,6,7].map(w=>`<button class="sm" data-diaoc="${w}" aria-pressed="${!oc.has(w)}" title="${oc.has(w)?'Mostrar':'Ocultar'} ${DNL[w]}">${DN[w]}</button>`).join('')}<button class="sm" data-tottog="1" aria-pressed="${!S.geral.ocultaTotal}" title="${S.geral.ocultaTotal?'Mostrar':'Ocultar'} o total da semana" style="margin-left:6px">Total</button></div>`;}
+function avisoOcultos(C){const oc=ocultos();const h=C.filter(c=>oc.has(wd(c.d))&&(Math.abs(c.recT)>0.005||Math.abs(c.pagT)>0.005));return h.length?`<p class="hint">Oculto${h.length>1?'s':''}: ${h.map(c=>`${DNL[wd(c.d)]} ${br(c.d)} (receb. ${fmt(c.recT)} · pag. ${fmt(c.pagT)})`).join('; ')}. Esses valores continuam ${S.geral.ocultaTotal?'no saldo':'nos totais da semana e no saldo'}.</p>`:'';}
 function projTable(P,opts){
   const C=P.cols, G=grupos(), weekly=opts.weekly, F=UI.fold||{};
   const oc=ocultos(), CM=f=>C.map((c,i)=>oc.has(wd(c.d))?'':f(c,i)).join('');
@@ -514,7 +516,7 @@ function projTable(P,opts){
     return `<tr ${g&&F[g]?'hidden':''}><td>${label}</td>${CM(c=>real?`<td class="zero"></td><td class="rl">${inp(c)}</td>`:`<td>${inp(c)}</td><td class="rl zero"></td>`)}<td>${real?'':fmt(C.reduce((s,c)=>s+(+val(c.d)||0),0))}</td><td class="rl"></td></tr>`;};
   const tg=(k,label)=>`<button class="tg" data-fold="${k}" aria-expanded="${!F[k]}" title="${F[k]?'Mostrar':'Ocultar'} detalhes">▾</button>${label}`;
   const sec=(label,k)=>`<tr class="sec"><td>${k?tg(k,label):label}</td>${CM(()=>'<td></td><td></td>')}<td></td><td></td></tr>`;
-  let h=`<div class="scroll"><table class="proj lado"><thead><tr><th rowspan="2">Classificação</th>${CM(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`)}<th colspan="2">Total</th></tr>
+  let h=`<div class="scroll"><table class="proj lado${S.geral.ocultaTotal?' semtotal':''}"><thead><tr><th rowspan="2">Classificação</th>${CM(c=>`<th colspan="2" class="${weekly?'click':''} ${UI.diaSel===c.d?'sel':''}" data-dia="${c.d}">${br(c.d)}<span class="wd">${DN[wd(c.d)]}${feriadoSet().has(c.d)?' · feriado':''}</span></th>`)}<th colspan="2">Total</th></tr>
    <tr class="sub2">${CM(()=>'<th>Orçado</th><th class="rl">Realizado</th>')}<th>Orçado</th><th class="rl">Realizado</th></tr></thead><tbody>`;
   h+=`<tr class="key"><td>${tg('ini','Saldo inicial do dia')}</td>${CM(c=>tdO(c.ini)+tdR(c.saldoReal))}<td></td><td class="rl"></td></tr>`;
   h+=`<tr ${F.ini?'hidden':''}><td>Dinheiro em espécie no fim do dia anterior (informar)</td>${CM(c=>{const k=add(c.d,-1),v=(S.geral.dinheiro||{})[k];return `<td class="zero"></td><td class="rl"><input class="in cell" data-map="dinheiro" data-d="${k}" inputmode="decimal" value="${v!=null&&v!==''?(+v).toLocaleString('pt-BR',{minimumFractionDigits:2}):''}" aria-label="Dinheiro em espécie no fim de ${br(k)}"></td>`;})}<td></td><td class="rl"></td></tr>`;
@@ -595,7 +597,7 @@ function vCliente(P){
   <section class="panel"><div class="row" style="justify-content:space-between" data-noprint><span class="muted" style="font-size:12px">Resumo para enviar ao cliente</span>${diasCtl()}
    <div class="row"><button class="sm" data-act="copyResumo">Copiar resumo em imagem (WhatsApp)</button><button class="sm primary" data-act="xlsxCliente">Exportar Excel (resumo + pagamentos)</button></div></div>
    <div id="capResumo" style="display:flex;flex-direction:column;gap:12px;min-width:0"><div class="row" style="gap:12px"><img src="${document.querySelector('.brand img').src}" alt="" style="height:40px"><h2>Resumo da projeção — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}</h2></div>
-   <div class="scroll"><table class="proj"><thead><tr><th></th>${CV.map(c=>`<th>${br(c.d)}<span class="wd">${DN[wd(c.d)]}</span></th>`).join('')}<th>Semana</th></tr></thead><tbody>
+   <div class="scroll"><table class="proj${S.geral.ocultaTotal?' semtotal':''}"><thead><tr><th></th>${CV.map(c=>`<th>${br(c.d)}<span class="wd">${DN[wd(c.d)]}</span></th>`).join('')}<th>Semana</th></tr></thead><tbody>
     <tr class="key"><td>Saldo inicial</td>${CV.map(c=>`<td class="${cls(c.ini)}">${fmt(c.ini)}</td>`).join('')}<td class="${cls(C[0].ini)}">${fmt(C[0].ini)}</td></tr>
     <tr><td>(+) Recebimentos previstos</td>${CV.map(c=>`<td>${fmt(c.recT)}</td>`).join('')}<td>${fmt(rec)}</td></tr>
     <tr><td>(−) Pagamentos previstos</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr>
@@ -603,7 +605,7 @@ function vCliente(P){
    </tbody></table></div>
    ${avisoOcultos(C)}<p class="hint">Menor saldo: <b>${brl(min.fim)}</b> em ${DNL[wd(min.d)]}, ${br(min.d)}.</p>
    <h3>Pagamentos previstos por grupo</h3>
-   <div class="scroll"><table class="proj"><thead><tr><th>Grupo</th>${CV.map(c=>`<th>${DN[wd(c.d)]}</th>`).join('')}<th>Semana</th></tr></thead><tbody>
+   <div class="scroll"><table class="proj${S.geral.ocultaTotal?' semtotal':''}"><thead><tr><th>Grupo</th>${CV.map(c=>`<th>${DN[wd(c.d)]}</th>`).join('')}<th>Semana</th></tr></thead><tbody>
    ${gl.map(([g,v])=>`<tr><td>${esc(g)}</td>${v.map((x,i)=>V[i]?`<td class="${cls(x)}">${fmt(x)}</td>`:'').join('')}<td><b>${fmt(v.reduce((a,b)=>a+b,0))}</b></td></tr>`).join('')}
    <tr class="tot"><td>Total</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr></tbody></table></div>
   </div></section>
@@ -1037,7 +1039,8 @@ async function xlsxCliente(P){
     ['Saldo inicial',...CV.map(c=>+c.ini.toFixed(2)),+C[0].ini.toFixed(2)],['(+) Recebimentos previstos',...CV.map(c=>+c.recT.toFixed(2)),+C.reduce((s,c)=>s+c.recT,0).toFixed(2)],
     ['(−) Pagamentos previstos',...CV.map(c=>+c.pagT.toFixed(2)),+C.reduce((s,c)=>s+c.pagT,0).toFixed(2)],['(=) Saldo final do dia',...CV.map(c=>+c.fim.toFixed(2)),+C[6].fim.toFixed(2)],[],['Pagamentos por grupo']];
   grupos().forEach(g=>{const v=C.map(c=>c.g[g]||0);if(v.some(x=>x>0.005))r1.push([g,...v.filter((x,i)=>V[i]).map(x=>+x.toFixed(2)),+v.reduce((a,b)=>a+b,0).toFixed(2)]);});
-  const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...CV.map(()=>({wch:14})),{wch:15}];
+  if(S.geral.ocultaTotal)r1.forEach((r,i)=>{if(i>=2&&r.length===CV.length+2)r.pop();});
+  const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...CV.map(()=>({wch:14})),...(S.geral.ocultaTotal?[]:[{wch:15}])];
   XLSX.utils.book_append_sheet(wb,s1,'Resumo');
   // lista no formato do exemplo: blocos de 5 colunas lado a lado, 4 por faixa
   const dias=CV.filter(c=>c.itens.length), aoa=[], merges=[];let top=1;
@@ -1062,6 +1065,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.tab){UI.tab=t.dataset.tab;tryLS('pp_tab',UI.tab);render();window.scrollTo({top:0});return;}
   if(t.id==='prevW'){UI.semana=add(UI.semana,-7);UI.diaSel=null;UI.mes=null;render();return;}
   if(t.id==='nextW'){UI.semana=add(UI.semana,7);UI.diaSel=null;UI.mes=null;render();return;}
+  if(t.dataset.tottog){S.geral.ocultaTotal=!S.geral.ocultaTotal;persist('cfg/geral',0);render();const b=document.querySelector('[data-tottog]');if(b)b.focus();return;}
   if(t.dataset.diaoc){const w=+t.dataset.diaoc;const o=ocultos();if(o.has(w))o.delete(w);else{if(o.size>=6){toast('Deixe pelo menos um dia visível');return;}o.add(w);}S.geral.diasOcultos=[...o].sort();persist('cfg/geral',0);render();const b=document.querySelector('[data-diaoc="'+w+'"]');if(b)b.focus();return;}
   if(t.dataset.fold){UI.fold=Object.assign({},UI.fold||{});UI.fold[t.dataset.fold]=!UI.fold[t.dataset.fold];tryLS('pp_fold',JSON.stringify(UI.fold));render();const b=document.querySelector('[data-fold="'+t.dataset.fold+'"]');if(b)b.focus();return;}
   if(t.dataset.dia){UI.diaSel=UI.diaSel===t.dataset.dia?null:t.dataset.dia;render();return;}
