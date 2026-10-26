@@ -399,19 +399,25 @@ function agenda(a,b,semCP){
   return {itens:out,tits};
 }
 function recRange(){const ks=Object.keys(S.recebidos.dias||{}).sort();return ks.length?[ks[0],ks[ks.length-1]]:null;}
+// histórico do mesmo dia da semana usado na média; dias atípicos (acima de Q3 + 1,5 × IQR desse dia da semana) ficam de fora
+function recAmostra(iso){
+  const r=recRange(); if(!r) return null;
+  const N=+S.geral.mesesHist||4, m0=mStart(iso), from=addM(iso,-N), w=wd(iso);
+  const all=[];for(let d=from<r[0]?r[0]:from; d<m0&&d<=r[1]; d=add(d,1))if(wd(d)===w)all.push([d,S.recebidos.dias[d]||0]);
+  let corte=Infinity;
+  if(S.geral.semAtipicos!==false&&all.length>=6){const v=all.map(x=>x[1]).sort((a,b)=>a-b);const q=p=>{const i=(v.length-1)*p,lo=Math.floor(i),hi=Math.ceil(i);return v[lo]+(v[hi]-v[lo])*(i-lo);};const q1=q(.25),q3=q(.75);corte=q3+1.5*(q3-q1);}
+  return {all,corte,ok:all.filter(x=>x[1]<=corte),fora:all.filter(x=>x[1]>corte)};
+}
 function projRec(iso){
-  const r=recRange(); if(!r) return 0;
-  const N=+S.geral.mesesHist||4, m0=mStart(iso), from=addM(iso,-N), w=wd(iso), n=Math.floor((day(iso)-1)/7)+1;
+  const A=recAmostra(iso); if(!A) return 0;
+  const n=Math.floor((day(iso)-1)/7)+1;
   let s1=0,c1=0,s2=0,c2=0;
-  for(let d=from<r[0]?r[0]:from; d<m0&&d<=r[1]; d=add(d,1)){
-    if(wd(d)!==w)continue; const v=S.recebidos.dias[d]||0; s2+=v;c2++;
-    if(Math.floor((day(d)-1)/7)+1===n){s1+=v;c1++;}
-  }
-  const base=c1?s1/c1:(c2?s2/c2:0);
+  A.ok.forEach(([d,v])=>{s2+=v;c2++;if(Math.floor((day(d)-1)/7)+1===n){s1+=v;c1++;}});
+  const base=c1>=3?s1/c1:(c2?s2/c2:0); // com menos de 3 dias na mesma ocorrência, usa todas as semanas daquele dia
   return feriadoSet().has(iso)?base*(+S.geral.fatorFeriado??1):base;
 }
-function amostra(iso){const r=recRange();if(!r)return 0;const N=+S.geral.mesesHist||4,m0=mStart(iso),from=addM(iso,-N),w=wd(iso),n=Math.floor((day(iso)-1)/7)+1;let c=0;
-  for(let d=from<r[0]?r[0]:from;d<m0&&d<=r[1];d=add(d,1))if(wd(d)===w&&Math.floor((day(d)-1)/7)+1===n)c++;return c;}
+function amostra(iso){const A=recAmostra(iso);if(!A)return 0;const n=Math.floor((day(iso)-1)/7)+1;const c1=A.ok.filter(([d])=>Math.floor((day(d)-1)/7)+1===n).length;return c1>=3?c1:A.ok.length;}
+function atipicosSemana(dias){const m=new Map();dias.forEach(iso=>{const A=recAmostra(iso);if(A)A.fora.forEach(([d,v])=>m.set(d,v));});return [...m].sort((a,b)=>a[0]<b[0]?-1:1);}
 function grupos(){return (S.geral.grupos&&S.geral.grupos.length)?S.geral.grupos:DEF_GRUPOS;}
 // saldo real de um dia = soma das contas importadas + dinheiro informado (null se não houver saldo bancário do dia)
 // a planilha de saldo de uma data traz o saldo no FIM daquele dia (+ espécie informada para a mesma data)
@@ -527,7 +533,7 @@ function projTable(P,opts){
   h+=inRow('Saldo inicial informado à mão (substitui a planilha)','saldoMan','ini',true);
   h+=row('diferença saldo registrado x projetado para o início do dia',c=>0,(c)=>c.saldoReal==null?null:c.saldoReal-c.iniProj,'sub','ini',false).replace(/<td class="zero">–<\/td>/g,'<td></td>');
   h+=sec('Recebimentos','rec');
-  h+=row('Média das contas recebidas na mesma ocorrência do dia da semana (últimos meses)',c=>c.recP,c=>c.recReal,null,'rec');
+  h+=row('Média das contas recebidas no mesmo dia da semana (últimos meses, sem dias atípicos)',c=>c.recP,c=>c.recReal,null,'rec');
   h+=inRow('Ajuste manual de recebimentos (+/−)','ajRec','rec');
   h+=row('Total de recebimentos',c=>c.recT,c=>c.recReal,'tot');
   h+=sec('Pagamentos por grupo','pag');
@@ -587,7 +593,7 @@ function mensaisPanel(P){
 function vSemana(P){
   const sel=UI.diaSel&&P.cols.find(c=>c.d===UI.diaSel);
   return `<div class="wrap" style="gap:16px">${kpis(P)}
-  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${diasCtl()}${projTable(P,{weekly:true})}${avisoOcultos(P.cols)}</section>
+  <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${diasCtl()}${projTable(P,{weekly:true})}${avisoOcultos(P.cols)}${(()=>{const X=atipicosSemana(P.cols.map(c=>c.d));return X.length?`<p class="hint">Recebimentos previstos sem dias atípicos: ficaram fora da média ${X.map(([d,v])=>`${DN[wd(d)]} ${br(d)} (${fmt0(v)})`).join(', ')}.</p>`:'';})()}</section>
   ${sel?`<section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos de ${DNL[wd(sel.d)]}, ${brY(sel.d)}</h2><button class="sm" data-act="fechaDia">Fechar</button></div>${dayBlock(sel,{marks:true})}</section>`:''}
   <div class="grid2">${partidaPanel()}${mensaisPanel(P)}</div></div>`;
 }
@@ -762,6 +768,7 @@ function vImportar(){
    </section>
    <section class="panel"><h3>Parâmetros</h3>
     <div class="row"><label for="pMeses">Meses de histórico para projetar recebimentos</label><input id="pMeses" type="number" min="1" max="12" value="${S.geral.mesesHist}" style="width:70px"></div>
+    <div class="row"><label><input id="pAtip" type="checkbox" ${S.geral.semAtipicos===false?'':'checked'}> Tirar da média os dias de recebimento atípicos (muito acima do normal para aquele dia da semana)</label></div>
     <div class="row"><label for="pFator">Recebimento em feriado (% da média)</label><input id="pFator" type="number" min="0" max="200" value="${Math.round((S.geral.fatorFeriado??1)*100)}" style="width:80px"></div>
     <div class="row"><label for="pIsentas">Formas que não seguem a regra ter/sex</label><input id="pIsentas" value="${esc((S.geral.formasIsentas||[]).join(', '))}" style="flex:1;min-width:200px"></div>
    </section>
@@ -1157,6 +1164,7 @@ function onChange(t){
   if(t.dataset.cmv){const mk=ym(UI.mesOrc||mesAnalise());const v=pnum(t.value);S.orcamento.meses=S.orcamento.meses||{};const o=S.orcamento.meses[mk]=S.orcamento.meses[mk]||{};if(t.value.trim()===''||isNaN(v))delete o.cmv;else o.cmv=v/100;persist('cfg/orcamento',0);render();return;}
   if(t.dataset.fat){const [y,mm]=t.dataset.fat.split('|');const v=pnum(t.value);S.orcamento.fat=S.orcamento.fat||{};S.orcamento.fat[y]=S.orcamento.fat[y]||{};if(t.value.trim()===''||isNaN(v))delete S.orcamento.fat[y][mm];else S.orcamento.fat[y][mm]=v;persist('cfg/orcamento',0);render();return;}
   if(t.id==='pMeses'){S.geral.mesesHist=Math.max(1,Math.min(12,+t.value||4));persist('cfg/geral',0);render();return;}
+  if(t.id==='pAtip'){S.geral.semAtipicos=t.checked;persist('cfg/geral',0);render();return;}
   if(t.id==='pFator'){S.geral.fatorFeriado=Math.max(0,(+t.value||0)/100);persist('cfg/geral',0);render();return;}
   if(t.id==='pIsentas'){S.geral.formasIsentas=t.value.split(/[,;]/).map(x=>x.trim().toUpperCase()).filter(Boolean);persist('cfg/geral',0);render();return;}
   if(t.id==='file'){importar([...t.files]);t.value='';return;}
