@@ -335,6 +335,8 @@ function showBanner(t){const b=$('#banner');b.textContent=t;b.hidden=!t;}
 
 // ---------------- dados derivados ----------------
 const feriadoSet=()=>new Set((S.feriados.itens||[]).map(f=>f.d).filter(Boolean));
+// regra da casa: domingo não tem pagamento (vai para segunda); boleto, cheque e débito de sábado também vão para segunda
+function diaPag(d,forma){if(!d)return d;const w=wd(d);if(w===7)return add(d,1);if(w===6&&new Set((S.geral.formasIsentas||[]).map(x=>String(x).toUpperCase().trim())).has(String(forma||'').toUpperCase().trim()))return add(d,2);return d;}
 function isBizDay(iso,fs){const w=wd(iso);return w<6&&!fs.has(iso);}
 function nextBiz(iso,fs){while(!isBizDay(iso,fs))iso=add(iso,1);return iso;}
 function prevBiz(iso,fs){while(!isBizDay(iso,fs))iso=add(iso,-1);return iso;}
@@ -351,6 +353,7 @@ function titulos(){
     let dataCons=venc, motivo='';
     if(aj&&aj.data){dataCons=aj.data;motivo='ajuste';}
     else if(isenta&&!isBizDay(venc,fs)){dataCons=nextBiz(venc,fs);motivo='dia útil';}
+    else if(wd(venc)===7){dataCons=add(venc,1);motivo='domingo';}
     const considera=valor>0&&sit!=='Estornada'&&sit!=='Pago'&&!excl;
     const w=wd(dataCons);
     const mover=considera&&!isenta&&w!==2&&w!==5;
@@ -380,7 +383,8 @@ function recOcorrencias(a,b,tits){
         const hit=tits.some(t=>t.considera&&(t.part||'').toUpperCase().includes(k)&&t.dataCons>=m0&&t.dataCons<=m1&&t.valor>=valor*0.9&&t.valor<=valor*1.1);
         if(hit)return;}
       const ex=excMap[it.id+'|'+d];
-      if(ex){if(ex.novaData)data=ex.novaData; if(ex.novoValor!==''&&ex.novoValor!=null&&!isNaN(pnum(ex.novoValor)))valor=pnum(ex.novoValor); obs='exceção';}
+      data=diaPag(data,it.forma);
+      if(ex){if(ex.novaData)data=diaPag(ex.novaData,it.forma); if(ex.novoValor!==''&&ex.novoValor!=null&&!isNaN(pnum(ex.novoValor)))valor=pnum(ex.novoValor); obs='exceção';}
       if(valor>0)out.push({origem:'Orçado recorrente',valorOrig:base,valAlt:!!(ex&&ex.novoValor!==''&&ex.novoValor!=null&&pnum(ex.novoValor)!==base),data,desc:it.desc,valor,forma:it.forma||'',plano:it.plano||'',grupo:it.grupo||'Outros',recId:it.id,prev:d,obs});
     });
   });
@@ -391,7 +395,7 @@ function agenda(a,b,semCP){
   const out=[];
   if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id});});
   recOcorrencias(add(a,-40),add(b,40),tits).forEach(o=>{if(o.data>=a&&o.data<=b)out.push(o);});
-  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor);if(m.data&&v>0&&!m.excluido&&m.data>=a&&m.data<=b)out.push({origem:'Lançamento manual',data:m.data,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
+  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor),dm=diaPag(m.data,m.forma);if(m.data&&v>0&&!m.excluido&&dm>=a&&dm<=b)out.push({origem:'Lançamento manual',data:dm,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
   return {itens:out,tits};
 }
 function recRange(){const ks=Object.keys(S.recebidos.dias||{}).sort();return ks.length?[ks[0],ks[ks.length-1]]:null;}
@@ -638,17 +642,17 @@ function vExcluidos(EX,nT){
 }
 function recDaSemana(P){
   return P.itens.filter(x=>x.origem==='Orçado recorrente').map(x=>({rec:true,key:'REC:'+x.recId+'|'+x.prev,id:x.recId,part:x.desc,venc:x.prev,valor:x.valor,valorOrig:x.valorOrig,valAlt:x.valAlt,forma:x.forma,plano:x.plano,grupo:x.grupo,
-    dataCons:x.data,agenda:x.data,aj:x.data!==x.prev?{data:x.data}:null,valorAlt:x.obs==='exceção'&&x.data===x.prev,mover:false,atras:false}));
+    dataCons:x.data,agenda:x.data,aj:(x.data!==x.prev&&x.obs==='exceção')?{data:x.data}:null,motivo:(x.data!==x.prev&&x.obs!=='exceção')?(wd(x.prev)===7?'domingo':'dia útil'):'',valorAlt:x.obs==='exceção'&&x.data===x.prev,mover:false,atras:false}));
 }
 // lançamentos manuais como títulos a pagar (chave MAN:<posição na lista>)
 function manTitulos(){
   const isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim()));
   return (S.manuais.itens||[]).map((m,i)=>{const v=pnum(m.valor);if(!m.data||!(v>0))return null;
-    const forma=(m.forma||'').toUpperCase(),w=wd(m.data),excl=!!m.excluido,considera=!excl;
+    const forma=(m.forma||'').toUpperCase(),dm=diaPag(m.data,forma),w=wd(dm),excl=!!m.excluido,considera=!excl;
     const mover=considera&&!isent.has(forma)&&w!==2&&w!==5;
-    const ant=add(m.data,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(m.data,Math.min((2-w+7)%7,(5-w+7)%7));
+    const ant=add(dm,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(dm,Math.min((2-w+7)%7,(5-w+7)%7));
     return {man:true,mi:i,key:'MAN:'+i,id:'M'+String(i+1).padStart(2,'0'),part:m.desc||'(sem descrição)',venc:m.dataOrig||m.data,valor:v,valorOrig:m.valorOrig!=null?pnum(m.valorOrig):v,valAlt:m.valorOrig!=null,forma,plano:m.plano||'',grupo:m.grupo||'Outros',
-      dataCons:m.data,agenda:m.data,aj:(m.dataOrig&&m.dataOrig!==m.data)?{data:m.data}:null,excl,considera,mover,atras:false,passado:m.data<UI.semana,ant,seg};}).filter(Boolean);
+      dataCons:dm,agenda:dm,motivo:dm===m.data?'':(wd(m.data)===7?'domingo':'dia útil'),aj:(m.dataOrig&&m.dataOrig!==m.data)?{data:m.data}:null,excl,considera,mover,atras:false,passado:dm<UI.semana,ant,seg};}).filter(Boolean);
 }
 function setValTit(K,v){ // v=null volta ao valor original
   if(K.startsWith('REC:')){const t=recDaSemana(projSemana()).find(x=>x.key===K);recExc(K,{novoValor:(v==null||(t&&v===t.valorOrig))?'':v});return;}
@@ -699,7 +703,7 @@ function vTitulos(P){
   ${L.length?`<div class="scroll"><table class="list"><thead><tr>${thOrd('id','Ident.','txt')}${thOrd('part','Participante','txt')}${thOrd('venc','Vencimento','txt')}${thOrd('valor','Valor')}${thOrd('forma','Forma','txt')}${thOrd('plano','Plano de conta','txt')}${thOrd('dataCons','Pagar em','txt')}${thOrd('sit','Situação','txt')}<th class="txt">Reprogramar</th><th></th></tr></thead><tbody>
   ${L.map(t=>{const K=t.key||t.id;return `<tr class="${t.mover?'mover':t.atras?'atras':''}"><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt nowrap">${br(t.venc)} ${DN[wd(t.venc)]}</td><td class="nowrap"><input class="in" data-valtit="${esc(K)}" inputmode="decimal" value="${t.valor.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}" aria-label="Valor a pagar de ${esc(t.part)}" title="Digite o valor a pagar; apague para voltar ao original" style="width:112px;text-align:right">${t.valAlt?`<div class="muted" style="font-size:11px;margin-top:2px">original ${fmt(t.valorOrig)} · <button class="sm ghost" data-valclr="${esc(K)}" style="padding:0 4px;font-size:11px">desfazer</button></div>`:''}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td>
    <td class="txt nowrap">${UI.ajOutra===K?`<input type="date" class="in" data-aj="${esc(K)}" value="${t.dataCons}" style="width:150px"> <button class="sm" data-ajok="1">OK</button> <button class="sm ghost" data-ajcancel="1">cancelar</button>`:selPagarEm(t)}</td>
-   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.valAlt?'<span class="pill aj">valor alterado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''} ${t.man?'<span class="pill ok">lançamento manual</span>':''} ${t.passado?'<span class="pill atras">data já passou</span>':''}</td>
+   <td class="txt">${t.mover?'<span class="pill mover">mover p/ ter/sex</span>':''} ${t.atras?'<span class="pill atras">atrasado → segunda</span>':''} ${t.aj?'<span class="pill aj">ajustado</span>':''} ${t.valAlt?'<span class="pill aj">valor alterado</span>':''} ${t.motivo==='dia útil'?'<span class="pill ok">próx. dia útil</span>':t.motivo==='domingo'?'<span class="pill ok">domingo → segunda</span>':''} ${t.rec?'<span class="pill ok">orçado recorrente</span>':''} ${t.man?'<span class="pill ok">lançamento manual</span>':''} ${t.passado?'<span class="pill atras">data já passou</span>':''}</td>
    <td class="txt nowrap">${t.mover?`<button class="sm" data-setaj="${esc(t.man?K:t.id)}" data-d="${t.ant}">← ${DN[wd(t.ant)]} ${br(t.ant)}</button> <button class="sm" data-setaj="${esc(t.man?K:t.id)}" data-d="${t.seg}">${DN[wd(t.seg)]} ${br(t.seg)} →</button>`:''} ${t.aj?`<button class="sm ghost" data-clraj="${esc(K)}">desfazer</button>`:''}</td>
    <td><button class="sm ghost danger" data-excl="${esc(K)}" title="${t.rec?'Excluir este pagamento recorrente só nesta data':t.man?'Excluir este lançamento manual da projeção':'Excluir este título da projeção'}" aria-label="Excluir ${esc(t.id)}">${ICON_LIXO}</button></td></tr>`;}).join('')}
   </tbody></table></div>`:'<div class="empty">Nenhum título neste filtro.</div>'}</section>`;
