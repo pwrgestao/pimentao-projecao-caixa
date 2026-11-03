@@ -368,7 +368,7 @@ function titulos(){
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
   const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
   return rows.map(r=>{
-    const [id,part,venc,valorSis,forma,plano,sit]=r;
+    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa]=r; const baixado=baixa==='BAIXADO';
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
     const valAlt=!!(aj&&aj.valor!=null&&aj.valorSis===valorSis), valor=valAlt?+aj.valor:valorSis;
     const isenta=isent.has((forma||'').toUpperCase());
@@ -381,10 +381,10 @@ function titulos(){
     const fixo=!(aj&&aj.incluir)&&fornFixo(part);
     const considera=valor>0&&sit!=='Estornada'&&sit!=='Pago'&&!excl&&!fixo;
     const w=wd(dataCons);
-    const mover=considera&&!pago&&!isenta&&w!==2&&w!==5;
-    const atras=considera&&!pago&&dataCons<ini;
+    const mover=considera&&!pago&&!baixado&&!isenta&&w!==2&&w!==5;
+    const atras=considera&&!pago&&!baixado&&dataCons<ini;
     const ant=add(dataCons,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(dataCons,Math.min((2-w+7)%7,(5-w+7)%7));
-    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,fixo,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
+    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,fixo,baixado,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
       grupo:dep[(plano||'').toUpperCase().trim()]||'Outros',agenda:atras?ini:dataCons};
   });
 }
@@ -719,7 +719,7 @@ function recCancelados(){
 }
 function vTitulos(P){
   const MT=manTitulos();
-  const T=P.tits.filter(t=>t.considera).concat(recDaSemana(P)).concat(MT.filter(t=>t.considera)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
+  const T=P.tits.filter(t=>t.considera&&!t.baixado).concat(recDaSemana(P)).concat(MT.filter(t=>t.considera)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
   const wa=UI.semana,wb=add(UI.semana,6),TW=T.filter(t=>t.agenda>=wa&&t.agenda<=wb); // só o que se paga na semana escolhida (pela data ajustada)
   const f=UI.filtroTit==='semana'?'todos':UI.filtroTit;
   const EX=P.tits.filter(t=>t.excl||(t.fixo&&t.valor>0&&t.sit!=='Estornada'&&t.sit!=='Pago')).concat(recCancelados()).concat(MT.filter(t=>t.excl));
@@ -941,6 +941,12 @@ async function importar(files){
         const est=new Set(rows.map(r=>r[7]));
         const atuais=Object.keys(S.pagarChunks).filter(k=>+k.slice(1)<(S.pagarMeta.chunks||0)).sort((a,b)=>+a.slice(1)-+b.slice(1)).flatMap(k=>S.pagarChunks[k].rows||[]);
         const mantem=atuais.filter(r=>r[7]&&(!est.has(r[7])||lote.estabs.has(r[7])));
+        // títulos já salvos do mesmo estabelecimento que não vêm no arquivo novo: os de data passada ficam como baixados (histórico do orçado); os de data futura saem
+        const hojeI=todayIso(), novos=new Set(rows.map(r=>r[0])), corte=add(hojeI,-150);let baix=0;
+        atuais.filter(r=>r[7]&&est.has(r[7])&&!lote.estabs.has(r[7])&&!novos.has(r[0])).forEach(r=>{
+          const dt=((S.ajustes.map||{})[r[0]]||{}).data||r[2];
+          if(r[8]==='BAIXADO'){if(r[2]>=corte)mantem.push(r);return;}
+          if(dt<hojeI&&r[2]>=corte){const x=r.slice(0,8);x[8]='BAIXADO';mantem.push(x);baix++;}});
         const M=new Map();let rep=0;mantem.forEach(r=>M.set(r[0],r));rows.forEach(r=>{if(M.has(r[0]))rep++;M.set(r[0],r);});
         est.forEach(e=>lote.estabs.add(e));
         const all=[...M.values()];
@@ -953,7 +959,7 @@ async function importar(files){
         S.pagarMeta={chunks:n,arquivo:arqs.map(a=>a.nome).join(' + '),linhas:all.length,em:new Date().toISOString().slice(0,19),arquivos:arqs};
         persist('base/pagarMeta',300);
         const vs=rows.map(r=>r[2]).sort();
-        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos (${esc([...est].join(', '))}), vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])}${rep?` · ${rep} título(s) já existiam e não foram duplicados`:''} · base agora com ${all.length} títulos</span>`);
+        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos (${esc([...est].join(', '))}), vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])}${rep?` · ${rep} título(s) já existiam e não foram duplicados`:''}${baix?` · ${baix} título(s) que não vieram no arquivo (já baixados) ficaram no histórico do orçado`:''} · base agora com ${all.length} títulos</span>`);
       }
     }catch(e){out.push(`<span class="err">✕ ${esc(file.name)}: ${esc(e.message||e)}</span>`);}
   }
