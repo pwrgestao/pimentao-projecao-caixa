@@ -359,6 +359,9 @@ function diaPag(d,forma){if(!d)return d;const w=wd(d);if(w===7)return add(d,1);i
 function isBizDay(iso,fs){const w=wd(iso);return w<6&&!fs.has(iso);}
 function nextBiz(iso,fs){while(!isBizDay(iso,fs))iso=add(iso,1);return iso;}
 function prevBiz(iso,fs){while(!isBizDay(iso,fs))iso=add(iso,-1);return iso;}
+// fornecedores cujas compras já estão no valor fixo de compras da Bahia (orçado recorrente): títulos deles ficam fora da projeção
+const nrmTxt=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+function fornFixo(part){const p=nrmTxt(part);return (S.geral.fornFixoBahia||[]).some(f=>{const q=nrmTxt(f);return q&&p.includes(q);});}
 function titulos(){
   const keys=Object.keys(S.pagarChunks).filter(k=>+k.slice(1)<(S.pagarMeta.chunks||0)).sort((a,b)=>+a.slice(1)-+b.slice(1));
   const rows=[];keys.forEach(k=>(S.pagarChunks[k].rows||[]).forEach(r=>rows.push(r)));
@@ -375,12 +378,13 @@ function titulos(){
     else if(aj&&aj.data){dataCons=aj.data;motivo='ajuste';}
     else if(isenta&&!isBizDay(venc,fs)){dataCons=nextBiz(venc,fs);motivo='dia útil';}
     else if(wd(venc)===7){dataCons=add(venc,1);motivo='domingo';}
-    const considera=valor>0&&sit!=='Estornada'&&sit!=='Pago'&&!excl;
+    const fixo=!(aj&&aj.incluir)&&fornFixo(part);
+    const considera=valor>0&&sit!=='Estornada'&&sit!=='Pago'&&!excl&&!fixo;
     const w=wd(dataCons);
     const mover=considera&&!pago&&!isenta&&w!==2&&w!==5;
     const atras=considera&&!pago&&dataCons<ini;
     const ant=add(dataCons,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(dataCons,Math.min((2-w+7)%7,(5-w+7)%7));
-    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
+    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,fixo,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
       grupo:dep[(plano||'').toUpperCase().trim()]||'Outros',agenda:atras?ini:dataCons};
   });
 }
@@ -669,7 +673,7 @@ function vExcluidos(EX,nT){
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h2>Títulos excluídos da projeção</h2><button class="sm" data-filtro="todos">← Voltar aos títulos (${nT})</button></div>
   <p class="hint">Estes títulos continuam no contas a pagar do sistema, mas não entram na projeção nem na lista do cliente. A exclusão fica guardada pelo Ident.</p>
   ${EX.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Ident.</th><th class="txt">Participante</th><th class="txt">Vencimento</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th><th></th></tr></thead><tbody>
-  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td>${t.rec?'<span class="pill ok">orçado recorrente</span> ':''}${t.man?'<span class="pill ok">lançamento manual</span> ':''}<button class="sm" data-restaura="${esc(t.key||t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
+  ${EX.map(t=>`<tr><td class="txt">${esc(t.id)}</td><td class="txt">${esc(t.part)}</td><td class="txt">${brY(t.venc)}</td><td>${fmt(t.valor)}</td><td class="txt">${esc(t.forma)}</td><td class="txt">${esc(t.plano)}</td><td>${t.fixo?'<span class="pill ok">no valor fixo de compras Bahia</span> ':''}${t.rec?'<span class="pill ok">orçado recorrente</span> ':''}${t.man?'<span class="pill ok">lançamento manual</span> ':''}<button class="sm" data-restaura="${esc(t.key||t.id)}">Restaurar</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhum título excluído.</div>'}</section>`;
 }
 function recDaSemana(P){
   return P.itens.filter(x=>x.origem==='Orçado recorrente').map(x=>({rec:true,key:'REC:'+x.recId+'|'+x.prev,id:x.recId,part:x.desc,venc:x.prev,valor:x.valor,valorOrig:x.valorOrig,valAlt:x.valAlt,forma:x.forma,plano:x.plano,grupo:x.grupo,
@@ -718,7 +722,7 @@ function vTitulos(P){
   const T=P.tits.filter(t=>t.considera).concat(recDaSemana(P)).concat(MT.filter(t=>t.considera)).sort((a,b)=>a.agenda<b.agenda?-1:a.agenda>b.agenda?1:b.valor-a.valor);
   const wa=UI.semana,wb=add(UI.semana,6),TW=T.filter(t=>t.agenda>=wa&&t.agenda<=wb); // só o que se paga na semana escolhida (pela data ajustada)
   const f=UI.filtroTit==='semana'?'todos':UI.filtroTit;
-  const EX=P.tits.filter(t=>t.excl).concat(recCancelados()).concat(MT.filter(t=>t.excl));
+  const EX=P.tits.filter(t=>t.excl||(t.fixo&&t.valor>0&&t.sit!=='Estornada'&&t.sit!=='Pago')).concat(recCancelados()).concat(MT.filter(t=>t.excl));
   if(f==='excl')return vExcluidos(EX,TW.length);
   const nrm=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const q=nrm(UI.buscaTit).trim();
@@ -804,6 +808,7 @@ function vImportar(){
    </section>
    <section class="panel"><h3>Parâmetros</h3>
     <div class="row"><label for="pMeses">Meses de histórico para projetar recebimentos</label><input id="pMeses" type="number" min="1" max="12" value="${S.geral.mesesHist}" style="width:70px"></div>
+    <div class="row" style="align-items:flex-start"><label for="pFixoBahia" style="max-width:260px">Fornecedores já incluídos no valor fixo de compras da Bahia (um por linha; títulos deles ficam fora da projeção)</label><textarea id="pFixoBahia" rows="5" style="min-width:280px">${esc((S.geral.fornFixoBahia||[]).join('\n'))}</textarea></div>
     <div class="row"><label><input id="pAtip" type="checkbox" ${S.geral.semAtipicos===false?'':'checked'}> Tirar da média os dias de recebimento atípicos (muito acima do normal para aquele dia da semana)</label></div>
     <div class="row"><label for="pFator">Recebimento em feriado (% da média)</label><input id="pFator" type="number" min="0" max="200" value="${Math.round((S.geral.fatorFeriado??1)*100)}" style="width:80px"></div>
     <div class="row"><label for="pIsentas">Formas que não seguem a regra ter/sex</label><input id="pIsentas" value="${esc((S.geral.formasIsentas||[]).join(', '))}" style="flex:1;min-width:200px"></div>
@@ -1148,7 +1153,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.restaura&&t.dataset.restaura.startsWith('REC:')){recExc(t.dataset.restaura,{novoValor:''});render();toast('Pagamento recorrente restaurado');return;}
   if(t.dataset.clraj){const o=S.ajustes.map[t.dataset.clraj];if(o){delete o.data;if(!o.excluido&&o.valor==null)delete S.ajustes.map[t.dataset.clraj];}persist('cfg/ajustes',0);render();return;}
   if(t.dataset.excl){const id=t.dataset.excl;S.ajustes.map[id]=Object.assign({},S.ajustes.map[id]||{},{excluido:true,em:todayIso()});persist('cfg/ajustes',0);render();toast('Título '+id+' excluído da projeção · veja em “Excluídos” para restaurar');return;}
-  if(t.dataset.restaura){const o=S.ajustes.map[t.dataset.restaura];if(o){delete o.excluido;if(!o.data&&o.valor==null)delete S.ajustes.map[t.dataset.restaura];}persist('cfg/ajustes',0);render();toast('Título restaurado');return;}
+  if(t.dataset.restaura){const id=t.dataset.restaura,tt=titulos().find(x=>x.id===id),o=S.ajustes.map[id];if(tt&&tt.fixo){S.ajustes.map[id]=Object.assign({},o||{},{incluir:true});}else if(o){delete o.excluido;if(!o.data&&o.valor==null&&!o.incluir&&!o.pago)delete S.ajustes.map[id];}persist('cfg/ajustes',0);render();toast('Título restaurado');return;}
   if(t.dataset.addrow){const k=t.dataset.addrow;
     if(k==='depara'){S.depara.map['NOVO PLANO '+(Object.keys(S.depara.map).length+1)]='Outros';persist('cfg/depara',0);}
     else{const L=listOf(k);const novo=k==='recorrentes'?{id:'R'+String(1+Math.max(0,...L.map(x=>+String(x.id).replace(/\D/g,'')||0))).padStart(2,'0'),desc:'',grupo:'Outros',plano:'',forma:'PIX',freq:'Semanal',dsem:'',dmes:'',valor:'',ativo:'S',regra:'Não',ini:'',fim:'',chave:'',origem:''}
@@ -1204,6 +1209,7 @@ function onChange(t){
   if(t.dataset.cmv){const mk=ym(UI.mesOrc||mesAnalise());const v=pnum(t.value);S.orcamento.meses=S.orcamento.meses||{};const o=S.orcamento.meses[mk]=S.orcamento.meses[mk]||{};if(t.value.trim()===''||isNaN(v))delete o.cmv;else o.cmv=v/100;persist('cfg/orcamento',0);render();return;}
   if(t.dataset.fat){const [y,mm]=t.dataset.fat.split('|');const v=pnum(t.value);S.orcamento.fat=S.orcamento.fat||{};S.orcamento.fat[y]=S.orcamento.fat[y]||{};if(t.value.trim()===''||isNaN(v))delete S.orcamento.fat[y][mm];else S.orcamento.fat[y][mm]=v;persist('cfg/orcamento',0);render();return;}
   if(t.id==='pMeses'){S.geral.mesesHist=Math.max(1,Math.min(12,+t.value||4));persist('cfg/geral',0);render();return;}
+  if(t.id==='pFixoBahia'){S.geral.fornFixoBahia=t.value.split(/\n/).map(x=>x.trim()).filter(Boolean);persist('cfg/geral',0);render();toast('Lista de fornecedores do valor fixo atualizada');return;}
   if(t.id==='pAtip'){S.geral.semAtipicos=t.checked;persist('cfg/geral',0);render();return;}
   if(t.id==='pFator'){S.geral.fatorFeriado=Math.max(0,(+t.value||0)/100);persist('cfg/geral',0);render();return;}
   if(t.id==='pIsentas'){S.geral.formasIsentas=t.value.split(/[,;]/).map(x=>x.trim().toUpperCase()).filter(Boolean);persist('cfg/geral',0);render();return;}
