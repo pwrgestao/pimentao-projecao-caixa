@@ -171,6 +171,7 @@ button.daytab[aria-pressed="true"] small{color:inherit;opacity:.85}
       <label for="saldoIni">Saldo inicial</label>
       <input class="in" id="saldoIni" inputmode="decimal" placeholder="0,00" style="width:140px;text-align:right">
       <button class="sm" id="atuSaldo" title="Usa o saldo registrado no primeiro dia da semana (planilha de saldo + espécie)">Atualizar saldo</button>
+      <button class="sm" id="desfazer" title="Desfazer a última alteração (Ctrl+Z)" hidden>↶ Desfazer</button>
       <button class="save sm" id="salvarHtml" title="Baixa um arquivo .html com todos os dados e ajustes atuais">Salvar e baixar HTML</button>
     </div>
   </header>
@@ -242,6 +243,10 @@ var db={
 };
 var user={can:async function(){return canEdit;}};
 window.claude={use:async function(n){if(!ready)ready=iniciar();await ready;if(n==='db')return db;if(n==='user')return user;return null;}};
+window.PP_DESFAZER=async function(){var r=await sb.rpc('desfazer');if(r.error)throw erro(r.error);
+  // recarrega já os blocos restaurados nesta aba (os outros usuários recebem pelo tempo real)
+  await Promise.all(Object.keys(state).map(function(c){return carregar(c).catch(function(){});}));return r.data;};
+window.PP_ULTIMA=async function(){var r=await sb.rpc('ultima_alteracao');return r.error?null:r.data;};
 window.PP_SAIR=async function(){try{await sb.auth.signOut();}catch(e){}sair();};
 })();
 </script>
@@ -274,6 +279,16 @@ const DNL=['','Segunda','Terça','Quarta','Quinta','Sexta','Sábado','Domingo'];
 const MES=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
 const todayIso=()=>{const n=new Date();return I(new Date(Date.UTC(n.getFullYear(),n.getMonth(),n.getDate())));};
 const use=n=>(window.claude&&window.claude.use)?window.claude.use(n).catch(()=>null):Promise.resolve(null);
+let desfazendo=false;
+async function desfazerUltima(){
+  if(!window.PP_DESFAZER||desfazendo)return;
+  if(!canWrite){toast('Você não tem permissão para alterar os dados.');return;}
+  desfazendo=true;const b=$('#desfazer');if(b)b.disabled=true;
+  try{const r=await window.PP_DESFAZER();toast(r&&r.ok?`Desfeito: alteração de ${r.em} (${r.blocos} bloco${r.blocos===1?'':'s'} de dados)`:(r&&r.msg)||'Nada para desfazer');}
+  catch(e){toast('Não foi possível desfazer agora ('+(e&&e.code||'erro')+').');}
+  finally{desfazendo=false;if(b)b.disabled=false;atualizaDesfazer();}
+}
+async function atualizaDesfazer(){const b=$('#desfazer');if(!b||!window.PP_ULTIMA)return;b.hidden=false;const u=await window.PP_ULTIMA();b.disabled=!u;b.title=u?`Desfazer a última alteração, de ${u.em} (Ctrl+Z)`:'Não há alterações para desfazer';}
 function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>t.hidden=true,2600);}
 function tryLS(k,v){try{if(v===undefined)return localStorage.getItem(k);localStorage.setItem(k,v);}catch(e){return null;}}
 
@@ -296,7 +311,7 @@ function persist(path,delay){
   timers[path]=setTimeout(()=>{
     const [col,id]=path.split('/');
     const body=JSON.parse(JSON.stringify(docOf(path)));
-    queues[path]=(queues[path]||Promise.resolve()).then(()=>db.doc(path).set(body)).then(()=>setStatus('Salvo')).catch(e=>{
+    queues[path]=(queues[path]||Promise.resolve()).then(()=>db.doc(path).set(body)).then(()=>{setStatus('Salvo');clearTimeout(timers._desf);timers._desf=setTimeout(atualizaDesfazer,800);}).catch(e=>{
       if(e&&e.code==='invalid_argument'){canWrite=false;showBanner('Você pode ver a projeção, mas não tem permissão para alterar os dados desta ferramenta.');}
       else if(e&&e.code==='quota_exceeded'){showBanner('O armazenamento da ferramenta está cheio. Remova arquivos antigos de recebimentos ou pagos.');}
       else setStatus('Não foi possível salvar agora ('+(e&&e.code||'erro')+'). Tente de novo.');
@@ -1097,6 +1112,7 @@ document.addEventListener('click',e=>{
   if(t.dataset.filtro){UI.filtroTit=t.dataset.filtro;render();return;}
   if(t.dataset.diatit!==undefined){UI.diaTit=+t.dataset.diatit;render();return;}
   if(t.id==='salvarHtml'){salvarHtml();return;}
+  if(t.id==='desfazer'){desfazerUltima();return;}
   if(t.id==='atuSaldo'){if(S.geral.saldoSemana&&S.geral.saldoSemana[UI.semana]!=null){delete S.geral.saldoSemana[UI.semana];persist('cfg/geral',0);}
     $('#saldoIni').value='';const sp=saldoPartida();render();
     toast((sp.fonte==='auto'||sp.fonte==='proj')?`Saldo inicial: ${brl(sp.valor)} — ${sp.txt}`:'Nenhum saldo registrado até a segunda-feira. Anexe a planilha de saldo do dia.');return;}
@@ -1138,6 +1154,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('input',e=>{const t=e.target;if(t&&t.id==='buscaTit'){UI.buscaTit=t.value;const pos=t.selectionStart;clearTimeout(UI._bt);UI._bt=setTimeout(()=>{render();const i=document.getElementById('buscaTit');if(i){i.focus();try{i.setSelectionRange(pos,pos);}catch(e){}}},180);}});
 document.addEventListener('focusout',e=>{const t=e.target;if(t&&t.type==='date'&&t.dataset&&t.dataset.dirty){delete t.dataset.dirty;if(t.value===''||dataValida(t.value))onChange(t);else{toast('Data incompleta — use dd/mm/aaaa');render();}}
   else if(t&&t.dataset&&t.dataset.aj!==undefined&&UI.ajOutra){setTimeout(()=>{if(UI.ajOutra&&!(document.activeElement&&document.activeElement.dataset&&document.activeElement.dataset.aj!==undefined)){UI.ajOutra=null;render();}},150);}});
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&(e.key==='z'||e.key==='Z')){const a=document.activeElement;if(!(a&&a.matches&&a.matches('input,textarea,select'))&&window.PP_DESFAZER){e.preventDefault();desfazerUltima();return;}}});
 document.addEventListener('keydown',e=>{const t=e.target;if(t&&t.type==='date'&&e.key==='Enter'){e.preventDefault();t.blur();}});
 function onChange(t){
   if(t.id==='semana'){if(dataValida(t.value)){UI.semana=monday(t.value);UI.diaSel=null;UI.mes=null;render();}return;}
@@ -1211,6 +1228,7 @@ async function boot(){
   db.collection('controle').onSnapshot(s=>applySnap('controle',s),onErr);
   db.collection('mov').onSnapshot(s=>applySnap('mov',s),onErr);
   setStatus('Dados sincronizados · as alterações ficam salvas automaticamente');
+  atualizaDesfazer();
 }
 
 boot();
