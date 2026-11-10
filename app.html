@@ -368,18 +368,19 @@ function titulos(){
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
   const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
   return rows.map(r=>{
-    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa]=r; const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
+    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa,pgDt]=r; const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
     const valAlt=!!(aj&&aj.valor!=null&&aj.valorSis===valorSis), valor=valAlt?+aj.valor:valorSis;
     const isenta=isent.has((forma||'').toUpperCase());
     const pago=aj&&aj.pago&&aj.pago.data?aj.pago:null;
     let dataCons=venc, motivo='';
     if(pago){dataCons=pago.data;motivo='pago';}
+    else if(pagoSis&&pgDt){dataCons=pgDt;motivo='pago';} // data da coluna Pagamento da planilha
     else if(aj&&aj.data){dataCons=aj.data;motivo='ajuste';}
     else if(isenta&&!isBizDay(venc,fs)){dataCons=nextBiz(venc,fs);motivo='dia útil';}
     else if(wd(venc)===7){dataCons=add(venc,1);motivo='domingo';}
     const fixo=!(aj&&aj.incluir)&&fornFixo(part);
-    const considera=valor>0&&sit!=='Estornada'&&!excl&&!fixo&&!(pagoSis&&!pago&&dataCons>todayIso()); // pago antecipado na planilha: sai da projeção futura
+    const considera=valor>0&&sit!=='Estornada'&&!excl&&!fixo&&!(pagoSis&&!pago&&!pgDt&&dataCons>todayIso()); // pago antecipado na planilha: sai da projeção futura
     const w=wd(dataCons);
     const mover=considera&&!pago&&!baixado&&!isenta&&w!==2&&w!==5;
     const atras=considera&&!pago&&!baixado&&dataCons<ini;
@@ -934,8 +935,10 @@ async function importar(files){
       }else{
         const rows=[];
         data.forEach(r=>{const id=String(get(r,'Ident.')).trim();if(!id)return;const venc=toIso(get(r,'Vencimento'));if(!venc)return;
+          const sitR=String(get(r,'Situação')).trim(), pgDt=toIso(get(r,'Pagamento'));
           let v=pnum(get(r,'Saldo'));if(isNaN(v))v=pnum(get(r,'Total'));if(isNaN(v))v=pnum(get(r,'Valor'));
-          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),String(get(r,'Situação')).trim(),String(get(r,'Estabelecimento')).trim()||('arquivo:'+file.name)]);});
+          if(sitR==='Pago'||((!v||v<=0)&&pgDt)){let vp=pnum(get(r,'Pago'));if(isNaN(vp)||vp<=0)vp=pnum(get(r,'Total'));if(isNaN(vp)||vp<=0)vp=pnum(get(r,'Valor'));if(!isNaN(vp)&&vp>0)v=vp;} // título pago: o saldo vem zerado, vale o valor pago
+          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),sitR,String(get(r,'Estabelecimento')).trim()||('arquivo:'+file.name),null,pgDt||null]);});
         if(!rows.length)throw new Error('nenhum título com Ident. e vencimento');
         // substitui só os títulos do(s) mesmo(s) estabelecimento(s) do arquivo; no mesmo envio, os arquivos se somam; Ident. repetido entra uma vez
         const est=new Set(rows.map(r=>r[7]));
