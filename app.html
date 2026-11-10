@@ -623,10 +623,53 @@ function mensaisPanel(P){
   return `<section class="panel"><div class="row" style="justify-content:space-between"><h3>Despesas mensais que caem nesta semana</h3><span class="muted" style="font-size:12px">${brl(L.reduce((s,x)=>s+x.valor,0))}</span></div>
    ${L.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Dia</th><th class="txt">Descrição</th><th>Valor</th><th class="txt">Forma</th></tr></thead><tbody>${L.map(x=>`<tr><td class="txt">${DN[wd(x.data)]} ${br(x.data)}</td><td class="txt">${esc(x.desc)}</td><td>${fmt(x.valor)}</td><td class="txt">${esc(x.forma)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Nenhuma despesa mensal nesta semana.</div>'}</section>`;
 }
+// card: diferenças entre orçado e realizado nos dias da semana que já têm realizado importado
+function vDiferencas(P){
+  const F=UI.fold||{}, fechado=!!F.dif, hoje=todayIso();
+  const pk=Object.keys(S.pagos.dias||{}).sort(), pr=pk.length?[pk[0],pk[pk.length-1]]:null, rr=recRange();
+  const dias=P.cols.filter(c=>c.d<=hoje&&pr&&c.d>=pr[0]&&c.d<=pr[1]);
+  const cab=`<div class="row" style="justify-content:space-between"><h2><button class="tg" data-fold="dif" aria-expanded="${!fechado}" aria-label="Mostrar ou ocultar diferenças">▾</button>Orçado x realizado: o que mudou</h2>${dias.length?`<span class="muted" style="font-size:12px">dias com realizado importado: ${br(dias[0].d)} a ${br(dias[dias.length-1].d)}</span>`:''}</div>`;
+  if(!dias.length)return `<section class="panel">${cab}${fechado?'':'<p class="muted">Ainda não há contas pagas importadas para os dias desta semana.</p>'}</section>`;
+  if(fechado)return `<section class="panel">${cab}</section>`;
+  const D=new Set(dias.map(c=>c.d)), nomes={};(P.tits||[]).forEach(t=>{nomes[t.id]=t.part;});
+  // pagamentos importados (todas as semanas) por Ident.
+  const pagos={};Object.keys(S.mov||{}).forEach(k=>{if(!k.startsWith('pag-'))return;const doc=S.mov[k]||{};Object.entries(doc.t||{}).forEach(([key,v])=>{const j=key.lastIndexOf('|'),i=key.slice(0,j),d=key.slice(j+1);(pagos[i]=pagos[i]||[]).push({d,v:+v||0,pl:((doc.p||{})[key]||'')});});});
+  const dep=S.depara.map||{}, grp=pl=>{const k=String(pl||'').toUpperCase().trim();return k?(dep[k]||'Outros'):'Sem grupo';};
+  // 1) totais
+  const oP=dias.reduce((s,c)=>s+c.pagT,0), rP=dias.reduce((s,c)=>s+(c.pagReal||0),0);
+  const dR=dias.filter(c=>c.recReal!=null), oR=dR.reduce((s,c)=>s+c.recT,0), rR=dR.reduce((s,c)=>s+(c.recReal||0),0);
+  const sg=v=>(v>0.005?'+':'')+brl(v);
+  const temMov=dias.some(c=>pagRealGrupos(c.d));
+  // 2) por grupo
+  const G={};dias.forEach(c=>{Object.entries(c.g||{}).forEach(([g,v])=>{if(v)(G[g]=G[g]||{o:0,r:0}).o+=v;});const rg=pagRealGrupos(c.d)||{};Object.entries(rg).forEach(([g,v])=>{(G[g]=G[g]||{o:0,r:0}).r+=v;});});
+  const linG=!temMov?[]:Object.entries(G).map(([g,x])=>({g,o:x.o,r:x.r,d:x.r-x.o})).filter(x=>Math.abs(x.d)>=1).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d));
+  // 3) títulos previstos nesses dias e não pagos
+  const orcIds=new Set();P.itens.forEach(x=>{if(x.ident)orcIds.add(x.ident);});
+  const naoPagos=!temMov?[]:P.itens.filter(x=>x.ident&&D.has(x.data)&&!x.pago&&!(pagos[x.ident]||[]).length).sort((a,b)=>b.valor-a.valor);
+  // 4) pagamentos feitos nesses dias sem previsão na semana
+  const semPrev=[];Object.entries(pagos).forEach(([i,L])=>L.forEach(p=>{if(D.has(p.d)&&!orcIds.has(i))semPrev.push({i,d:p.d,v:p.v,g:grp(p.pl),n:nomes[i]||''});}));
+  semPrev.sort((a,b)=>b.v-a.v);
+  const spG={};semPrev.forEach(x=>{spG[x.g]=(spG[x.g]||0)+x.v;});
+  const tNP=naoPagos.reduce((s,x)=>s+x.valor,0), tSP=semPrev.reduce((s,x)=>s+x.v,0), MAX=15;
+  const tab=(h,rows)=>`<div class="scroll"><table class="list"><thead><tr>${h}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  return `<section class="panel">${cab}
+   <div class="kpis" style="margin-top:8px">
+    <div class="kpi ${rP-oP>0.005?'bad':''}"><span class="l">Pagamentos</span><span class="v">${sg(rP-oP)}</span><span class="s">orçado ${brl(oP)} · realizado ${brl(rP)}</span></div>
+    ${dR.length?`<div class="kpi ${rR-oR<-0.005?'bad':''}"><span class="l">Recebimentos</span><span class="v">${sg(rR-oR)}</span><span class="s">orçado ${brl(oR)} · realizado ${brl(rR)}</span></div>`:''}
+    <div class="kpi ${naoPagos.length?'alert':''}"><span class="l">Previstos e não pagos</span><span class="v">${naoPagos.length} título${naoPagos.length===1?'':'s'}</span><span class="s">${brl(tNP)}</span></div>
+    <div class="kpi ${semPrev.length?'alert':''}"><span class="l">Pagos sem previsão</span><span class="v">${semPrev.length} pagamento${semPrev.length===1?'':'s'}</span><span class="s">${brl(tSP)}</span></div>
+   </div>
+   ${linG.length?`<h3 style="margin:14px 0 6px">Diferença por grupo</h3>${tab('<th class="txt">Grupo</th><th>Orçado</th><th>Realizado</th><th>Diferença</th>',linG.map(x=>`<tr><td class="txt">${esc(x.g)}</td><td>${fmt(x.o)}</td><td>${fmt(x.r)}</td><td class="${cls(-x.d)}">${x.d>0?'+':''}${fmt(x.d)}</td></tr>`).join(''))}<p class="hint">Diferença positiva = pagou mais que o orçado no grupo.</p>`:''}
+   ${naoPagos.length?`<h3 style="margin:14px 0 6px">Títulos previstos que não aparecem nas contas pagas</h3>${tab('<th class="txt">Dia previsto</th><th class="txt">Ident.</th><th class="txt">Fornecedor</th><th class="txt">Grupo</th><th>Valor</th>',naoPagos.slice(0,MAX).map(x=>`<tr><td class="txt nowrap">${DN[wd(x.data)]} ${br(x.data)}</td><td class="txt">${esc(x.ident)}</td><td class="txt">${esc(x.desc)}</td><td class="txt">${esc(x.grupo)}</td><td>${fmt(x.valor)}</td></tr>`).join(''))}${naoPagos.length>MAX?`<p class="hint">Mais ${naoPagos.length-MAX} título(s), somando ${brl(naoPagos.slice(MAX).reduce((s,x)=>s+x.valor,0))}. Veja em Títulos a pagar › Atrasados.</p>`:''}`:''}
+   ${semPrev.length?`<h3 style="margin:14px 0 6px">Pagamentos feitos sem previsão na semana</h3><p class="hint" style="margin-top:0">Por grupo: ${Object.entries(spG).sort((a,b)=>b[1]-a[1]).map(([g,v])=>`${esc(g)} ${fmt0(v)}`).join(' · ')}</p>${tab('<th class="txt">Dia pago</th><th class="txt">Ident.</th><th class="txt">Fornecedor</th><th class="txt">Grupo</th><th>Valor</th>',semPrev.slice(0,MAX).map(x=>`<tr><td class="txt nowrap">${DN[wd(x.d)]} ${br(x.d)}</td><td class="txt">${esc(x.i)}</td><td class="txt">${esc(x.n||'—')}</td><td class="txt">${esc(x.g)}</td><td>${fmt(x.v)}</td></tr>`).join(''))}${semPrev.length>MAX?`<p class="hint">Mais ${semPrev.length-MAX} pagamento(s) menores, somando ${brl(semPrev.slice(MAX).reduce((s,x)=>s+x.v,0))}.</p>`:''}`:''}
+   ${!temMov?'<p class="hint">As contas pagas desses dias foram importadas sem o detalhe por título. Reimporte a planilha de contas pagas para ver as diferenças por grupo e por título.</p>':(!linG.length&&!naoPagos.length&&!semPrev.length?'<p class="muted">Sem diferenças relevantes entre orçado e realizado nesses dias.</p>':'')}
+  </section>`;
+}
 function vSemana(P){
   const sel=UI.diaSel&&P.cols.find(c=>c.d===UI.diaSel);
   return `<div class="wrap" style="gap:16px">${kpis(P)}
   <section class="panel"><div class="row" style="justify-content:space-between"><h2>Fluxo projetado — ${br(UI.semana)} a ${br(add(UI.semana,6))}</h2><span class="muted" style="font-size:12px">Clique na data para ver os pagamentos do dia · ▾ mostra/oculta detalhes · amarelo = digitável · realizado só até hoje</span></div>${diasCtl()}${projTable(P,{weekly:true})}${avisoOcultos(P.cols)}${(()=>{const X=atipicosSemana(P.cols.map(c=>c.d));return X.length?`<p class="hint">Recebimentos previstos sem dias atípicos: ficaram fora da média ${X.map(([d,v])=>`${DN[wd(d)]} ${br(d)} (${fmt0(v)})`).join(', ')}.</p>`:'';})()}</section>
+  ${vDiferencas(P)}
   ${sel?`<section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos de ${DNL[wd(sel.d)]}, ${brY(sel.d)}</h2><button class="sm" data-act="fechaDia">Fechar</button></div>${dayBlock(sel,{marks:true})}</section>`:''}
   <div class="grid2">${partidaPanel()}${mensaisPanel(P)}</div></div>`;
 }
