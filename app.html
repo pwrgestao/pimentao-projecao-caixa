@@ -580,6 +580,10 @@ function projTable(P,opts){
   h+=row('dos quais: lançamentos manuais',c=>c.man,null,'sub','tot');
   if(weekly)h+=row('inclui atrasados lançados na segunda',c=>c.atras,null,'sub','tot');
   h+=row('Movimento do dia (receb. − pag.)',c=>c.mov,c=>(c.recReal==null&&c.pagReal==null)?null:(c.recReal||0)-(c.pagReal||0),'key');
+  // saldo final calculado pelo que de fato movimentou no dia: abertura (registrada, se houver) + recebido − pago
+  const fimCalc=c=>(c.recReal==null&&c.pagReal==null)?null:(c.saldoReal!=null?c.saldoReal:c.ini)+(c.recReal||0)-(c.pagReal||0);
+  const CV=C.filter(c=>!oc.has(wd(c.d))), ultCalc=CV.length?fimCalc(CV[CV.length-1]):null;
+  h+=`<tr class="key"><td>Saldo final calculado pelas movimentações realizadas</td>${CM(c=>'<td></td>'+tdR(fimCalc(c)))}<td></td>${tdR(ultCalc)}</tr>`;
   h+=`<tr class="saldo"><td>Saldo final do dia</td>${CM(c=>tdO(c.fim)+tdR(saldoReal(add(c.d,1))))}${tdO(C[C.length-1].fim)}${tdR(saldoReal(add(C[C.length-1].d,1)))}</tr>`;
   h+=sec('Alertas');
   h+=`<tr><td>Títulos a mover para terça ou sexta</td>${CM(c=>`<td class="${c.moverN?'flag':'zero'}">${c.moverN?c.moverN+' · '+fmt0(c.moverV):'–'}</td><td class="rl"></td>`)}<td>${C.reduce((s,c)=>s+c.moverN,0)||'–'}</td><td class="rl"></td></tr>`;
