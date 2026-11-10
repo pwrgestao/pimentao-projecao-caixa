@@ -367,8 +367,11 @@ function titulos(){
   const rows=[];keys.forEach(k=>(S.pagarChunks[k].rows||[]).forEach(r=>rows.push(r)));
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
   const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
+  // pagamentos importados (contas pagas): Ident. do título -> total pago e última data de pagamento
+  const pagIdx={};Object.keys(S.mov||{}).forEach(k=>{if(!k.startsWith('pag-'))return;const t=(S.mov[k]||{}).t||{};for(const key in t){const j=key.lastIndexOf('|'),i=key.slice(0,j),d=key.slice(j+1);const o=pagIdx[i]||(pagIdx[i]={v:0,d:''});o.v+=+t[key]||0;if(d>o.d)o.d=d;}});
   return rows.map(r=>{
-    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa,pgDt]=r; const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
+    let [id,part,venc,valorSis,forma,plano,sit,estab,baixa,pgDt]=r; const pi=pagIdx[id]; if(pi&&pi.v>=(+valorSis||0)-0.01){sit='Pago';pgDt=pgDt||pi.d;} // já consta nas contas pagas
+    const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
     const valAlt=!!(aj&&aj.valor!=null&&aj.valorSis===valorSis), valor=valAlt?+aj.valor:valorSis;
     const isenta=isent.has((forma||'').toUpperCase());
