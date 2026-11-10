@@ -368,7 +368,7 @@ function titulos(){
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
   const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
   return rows.map(r=>{
-    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa]=r; const baixado=baixa==='BAIXADO';
+    const [id,part,venc,valorSis,forma,plano,sit,estab,baixa]=r; const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
     const valAlt=!!(aj&&aj.valor!=null&&aj.valorSis===valorSis), valor=valAlt?+aj.valor:valorSis;
     const isenta=isent.has((forma||'').toUpperCase());
@@ -379,12 +379,12 @@ function titulos(){
     else if(isenta&&!isBizDay(venc,fs)){dataCons=nextBiz(venc,fs);motivo='dia útil';}
     else if(wd(venc)===7){dataCons=add(venc,1);motivo='domingo';}
     const fixo=!(aj&&aj.incluir)&&fornFixo(part);
-    const considera=valor>0&&sit!=='Estornada'&&sit!=='Pago'&&!excl&&!fixo;
+    const considera=valor>0&&sit!=='Estornada'&&!excl&&!fixo&&!(pagoSis&&!pago&&dataCons>todayIso()); // pago antecipado na planilha: sai da projeção futura
     const w=wd(dataCons);
     const mover=considera&&!pago&&!baixado&&!isenta&&w!==2&&w!==5;
     const atras=considera&&!pago&&!baixado&&dataCons<ini;
     const ant=add(dataCons,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(dataCons,Math.min((2-w+7)%7,(5-w+7)%7));
-    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,fixo,baixado,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
+    return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,pagoSis,fixo,baixado,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
       grupo:dep[(plano||'').toUpperCase().trim()]||'Outros',agenda:atras?ini:dataCons};
   });
 }
@@ -420,7 +420,7 @@ function recOcorrencias(a,b,tits){
 function agenda(a,b,semCP){
   const tits=titulos();
   const out=[];
-  if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id,pago:t.pago});});
+  if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id,pago:t.pago||t.pagoSis});});
   recOcorrencias(add(a,-40),add(b,40),tits).forEach(o=>{if(o.data>=a&&o.data<=b)out.push(o);});
   (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor),pg=!!(m.pago&&m.pago.data),dm=pg?m.pago.data:diaPag(m.data,m.forma);if(m.data&&v>0&&!m.excluido&&dm>=a&&dm<=b)out.push({origem:'Lançamento manual',pago:pg,data:dm,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
   return {itens:out,tits};
