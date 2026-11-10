@@ -647,7 +647,11 @@ function vDiferencas(P){
   const orcIds=new Set();P.itens.forEach(x=>{if(x.ident)orcIds.add(x.ident);});
   const naoPagos=!temMov?[]:P.itens.filter(x=>x.ident&&D.has(x.data)&&!x.pago&&!(pagos[x.ident]||[]).length).sort((a,b)=>b.valor-a.valor);
   // 4) pagamentos feitos nesses dias sem previsão na semana
-  const semPrev=[];Object.entries(pagos).forEach(([i,L])=>L.forEach(p=>{if(D.has(p.d)&&!orcIds.has(i))semPrev.push({i,d:p.d,v:p.v,g:grp(p.pl),n:nomes[i]||''});}));
+  const avulsos=[];Object.entries(pagos).forEach(([i,L])=>L.forEach(p=>{if(D.has(p.d)&&!orcIds.has(i))avulsos.push({i,d:p.d,v:p.v,g:grp(p.pl),n:nomes[i]||''});}));
+  // recorrentes e lançamentos manuais (sem Ident.): o que foi pago no mesmo grupo na semana conta contra essa previsão
+  const RG={};P.itens.filter(x=>!x.ident&&D.has(x.data)).forEach(x=>{const g=x.grupo||'Outros';(RG[g]=RG[g]||{o:0,p:0,itens:[],pg:[]}).o+=x.valor;RG[g].itens.push(x);});
+  const semPrev=[];avulsos.forEach(x=>{if(RG[x.g]){RG[x.g].p+=x.v;RG[x.g].pg.push(x);}else semPrev.push(x);});
+  const linR=temMov?Object.entries(RG).map(([g,x])=>({g,o:x.o,p:x.p,d:x.p-x.o,n:x.itens.length,np:x.pg.length})).filter(x=>Math.abs(x.d)>=1).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)):[];
   semPrev.sort((a,b)=>b.v-a.v);
   const spG={};semPrev.forEach(x=>{spG[x.g]=(spG[x.g]||0)+x.v;});
   const tNP=naoPagos.reduce((s,x)=>s+x.valor,0), tSP=semPrev.reduce((s,x)=>s+x.v,0), MAX=15;
@@ -661,8 +665,9 @@ function vDiferencas(P){
    </div>
    ${linG.length?`<h3 style="margin:14px 0 6px">Diferença por grupo</h3>${tab('<th class="txt">Grupo</th><th>Orçado</th><th>Realizado</th><th>Diferença</th>',linG.map(x=>`<tr><td class="txt">${esc(x.g)}</td><td>${fmt(x.o)}</td><td>${fmt(x.r)}</td><td class="${cls(-x.d)}">${x.d>0?'+':''}${fmt(x.d)}</td></tr>`).join(''))}<p class="hint">Diferença positiva = pagou mais que o orçado no grupo.</p>`:''}
    ${naoPagos.length?`<h3 style="margin:14px 0 6px">Títulos previstos que não aparecem nas contas pagas</h3>${tab('<th class="txt">Dia previsto</th><th class="txt">Ident.</th><th class="txt">Fornecedor</th><th class="txt">Grupo</th><th>Valor</th>',naoPagos.slice(0,MAX).map(x=>`<tr><td class="txt nowrap">${DN[wd(x.data)]} ${br(x.data)}</td><td class="txt">${esc(x.ident)}</td><td class="txt">${esc(x.desc)}</td><td class="txt">${esc(x.grupo)}</td><td>${fmt(x.valor)}</td></tr>`).join(''))}${naoPagos.length>MAX?`<p class="hint">Mais ${naoPagos.length-MAX} título(s), somando ${brl(naoPagos.slice(MAX).reduce((s,x)=>s+x.valor,0))}. Veja em Títulos a pagar › Atrasados.</p>`:''}`:''}
+   ${linR.length?`<h3 style="margin:14px 0 6px">Orçado recorrente e lançamentos manuais x pago</h3>${tab('<th class="txt">Grupo</th><th>Orçado</th><th>Pago</th><th>Diferença</th><th class="txt">Situação</th>',linR.map(x=>`<tr><td class="txt">${esc(x.g)}</td><td>${fmt(x.o)}</td><td>${fmt(x.p)}</td><td class="${cls(-x.d)}">${x.d>0?'+':''}${fmt(x.d)}</td><td class="txt">${!x.np?'previsto e não pago':x.d<0?'pago a menor':'pago a maior'}</td></tr>`).join(''))}<p class="hint">Pagamentos sem título previsto no mesmo grupo da previsão recorrente ou manual contam contra ela na semana.</p>`:''}
    ${semPrev.length?`<h3 style="margin:14px 0 6px">Pagamentos feitos sem previsão na semana</h3><p class="hint" style="margin-top:0">Por grupo: ${Object.entries(spG).sort((a,b)=>b[1]-a[1]).map(([g,v])=>`${esc(g)} ${fmt0(v)}`).join(' · ')}</p>${tab('<th class="txt">Dia pago</th><th class="txt">Ident.</th><th class="txt">Fornecedor</th><th class="txt">Grupo</th><th>Valor</th>',semPrev.slice(0,MAX).map(x=>`<tr><td class="txt nowrap">${DN[wd(x.d)]} ${br(x.d)}</td><td class="txt">${esc(x.i)}</td><td class="txt">${esc(x.n||'—')}</td><td class="txt">${esc(x.g)}</td><td>${fmt(x.v)}</td></tr>`).join(''))}${semPrev.length>MAX?`<p class="hint">Mais ${semPrev.length-MAX} pagamento(s) menores, somando ${brl(semPrev.slice(MAX).reduce((s,x)=>s+x.v,0))}.</p>`:''}`:''}
-   ${!temMov?'<p class="hint">As contas pagas desses dias foram importadas sem o detalhe por título. Reimporte a planilha de contas pagas para ver as diferenças por grupo e por título.</p>':(!linG.length&&!naoPagos.length&&!semPrev.length?'<p class="muted">Sem diferenças relevantes entre orçado e realizado nesses dias.</p>':'')}
+   ${!temMov?'<p class="hint">As contas pagas desses dias foram importadas sem o detalhe por título. Reimporte a planilha de contas pagas para ver as diferenças por grupo e por título.</p>':(!linG.length&&!naoPagos.length&&!semPrev.length&&!linR.length?'<p class="muted">Sem diferenças relevantes entre orçado e realizado nesses dias.</p>':'')}
   </section>`;
 }
 function vSemana(P){
