@@ -956,6 +956,22 @@ async function importar(files){
         const M=new Map();let rep=0;mantem.forEach(r=>M.set(r[0],r));rows.forEach(r=>{if(M.has(r[0]))rep++;M.set(r[0],r);});
         est.forEach(e=>lote.estabs.add(e));
         const all=[...M.values()];
+        // lançamento manual igual a título da planilha (mesmo fornecedor, valor e vencimento): sai o manual, fica o título
+        const tok=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^A-Z0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>=3&&!['DAS','DOS','LTDA','LTD','EIRELI','COMERCIO'].includes(w));
+        const mesmoForn=(a,b)=>{const A=tok(a),B=new Set(tok(b));if(!A.length||!B.size)return false;const n=A.filter(w=>B.has(w)).length;return n===A.length||n===B.size||n>=2;};
+        let subst=0;const usados=new Set();S.ajustes.map=S.ajustes.map||{};
+        S.manuais.itens=(S.manuais.itens||[]).filter(m=>{
+          if(m.excluido)return true;const v=pnum(m.valor);if(!(v>0))return true;
+          const ds=new Set([m.data,m.dataOrig].filter(Boolean));
+          const t=rows.find(r=>!usados.has(r[0])&&Math.abs(r[3]-v)<0.011&&(ds.has(r[2])||ds.has(((S.ajustes.map||{})[r[0]]||{}).data))&&mesmoForn(m.desc,r[1]));
+          if(!t)return true;
+          usados.add(t[0]);subst++;
+          const o=Object.assign({},(S.ajustes.map||{})[t[0]]||{});
+          if(m.data&&m.data!==t[2]&&!o.data)o.data=m.data; // mantém a data reprogramada do manual
+          if(m.pago&&m.pago.data&&!o.pago)o.pago=m.pago;
+          if(Object.keys(o).length){o.em=o.em||todayIso();S.ajustes.map[t[0]]=o;}
+          return false;});
+        if(subst){persist('cfg/manuais',0);persist('cfg/ajustes',0);}
         const CH=400, n=Math.max(1,Math.ceil(all.length/CH)), old=S.pagarMeta.chunks||0;
         S.pagarChunks={};
         for(let i=0;i<n;i++){S.pagarChunks['c'+i]={rows:all.slice(i*CH,(i+1)*CH)};persist('pagar/c'+i,0);}
@@ -965,7 +981,7 @@ async function importar(files){
         S.pagarMeta={chunks:n,arquivo:arqs.map(a=>a.nome).join(' + '),linhas:all.length,em:new Date().toISOString().slice(0,19),arquivos:arqs};
         persist('base/pagarMeta',300);
         const vs=rows.map(r=>r[2]).sort();
-        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos (${esc([...est].join(', '))}), vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])}${rep?` · ${rep} título(s) já existiam e não foram duplicados`:''}${baix?` · ${baix} título(s) que não vieram no arquivo (já baixados) ficaram no histórico do orçado`:''} · base agora com ${all.length} títulos</span>`);
+        out.push(`<span class="ok">✓ ${esc(file.name)}: contas a pagar com ${rows.length} títulos (${esc([...est].join(', '))}), vencimentos de ${brY(vs[0])} a ${brY(vs[vs.length-1])}${rep?` · ${rep} título(s) já existiam e não foram duplicados`:''}${baix?` · ${baix} título(s) que não vieram no arquivo (já baixados) ficaram no histórico do orçado`:''}${subst?` · ${subst} lançamento(s) manual(is) substituído(s) pelo título da planilha`:''} · base agora com ${all.length} títulos</span>`);
       }
     }catch(e){out.push(`<span class="err">✕ ${esc(file.name)}: ${esc(e.message||e)}</span>`);}
   }
