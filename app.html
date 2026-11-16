@@ -506,6 +506,21 @@ function projecao(dias,saldoIni,opts){
       moverN:it.filter(x=>x.mover).length,moverV:it.filter(x=>x.mover).reduce((s,x)=>s+x.valor,0),
       recReal,pagReal,pagManG,pagManT,saldoReal:sr,iniProj,itens:it.sort((x,y)=>y.valor-x.valor)};
   });
+  // visão do cliente: nos dias que já têm contas pagas importadas (até hoje), pagamentos = já pagos + o que segue sinalizado a pagar
+  const hoje=todayIso(), idsOrc=new Set(itens.filter(x=>x.ident).map(x=>x.ident));let sc=saldoIni;
+  cols.forEach((c,i)=>{
+    const sr=c.saldoReal, ini=(sr!=null&&!(i===0&&opts&&opts.manual))?sr:sc;
+    if(c.d<=hoje&&c.pagReal!=null&&pr&&c.d>=pr[0]&&c.d<=pr[1]){
+      const real=pagRealGrupos(c.d)||{}, livre={};
+      const doc=(S.mov||{})['pag-'+monday(c.d)];if(doc&&doc.t)Object.entries(doc.t).forEach(([k,v])=>{const j=k.lastIndexOf('|');if(k.slice(j+1)!==c.d||idsOrc.has(k.slice(0,j)))return;const pl=String((doc.p||{})[k]||'').toUpperCase().trim();if(ignPl(pl))return;const g=(S.depara.map||{})[pl]||'Outros';livre[g]=(livre[g]||0)+(+v||0);});
+      // a pagar: títulos ainda sem pagamento e previsões recorrentes/manuais de grupos sem pagamento avulso no dia
+      const aPagar=c.itens.filter(x=>!x.pago&&(x.ident||!(livre[G.includes(x.grupo)?x.grupo:'Outros']>0)));
+      const gc={};G.forEach(n=>gc[n]=0);Object.entries(real).forEach(([g,v])=>{const k=G.includes(g)?g:'Outros';gc[k]=(gc[k]||0)+v;});
+      aPagar.forEach(x=>{const k=G.includes(x.grupo)?x.grupo:'Outros';gc[k]=(gc[k]||0)+x.valor;});
+      c.aPagarCli=aPagar.reduce((s,x)=>s+x.valor,0);c.pagCli=c.pagReal+c.aPagarCli+(+(S.geral.ajPag||{})[c.d]||0);c.gCli=gc;
+    }else{c.pagCli=c.pagT;c.gCli=c.g;}
+    c.iniCli=ini;c.fimCli=ini+c.recT-c.pagCli;sc=c.fimCli;
+  });
   return {cols,tits,itens};
 }
 const weekDays=()=>Array.from({length:7},(_,i)=>add(UI.semana,i));
@@ -687,9 +702,9 @@ function vSemana(P){
   <div class="grid2">${partidaPanel()}${mensaisPanel(P)}</div></div>`;
 }
 function vCliente(P){
-  const C=P.cols, rec=C.reduce((s,c)=>s+c.recT,0), pag=C.reduce((s,c)=>s+c.pagT,0), G=grupos();
-  const min=C.reduce((m,c)=>c.fim<m.fim?c:m,C[0]);
-  const gl=G.map(g=>[g,C.map(c=>c.g[g]||0)]).filter(([g,v])=>v.some(x=>x>0.005));
+  const C=P.cols, rec=C.reduce((s,c)=>s+c.recT,0), pag=C.reduce((s,c)=>s+c.pagCli,0), G=grupos();
+  const min=C.reduce((m,c)=>c.fimCli<m.fimCli?c:m,C[0]);
+  const gl=G.map(g=>[g,C.map(c=>c.gCli[g]||0)]).filter(([g,v])=>v.some(x=>x>0.005));
   const oc=ocultos(), V=C.map(c=>!oc.has(wd(c.d))), CV=C.filter((c,i)=>V[i]);
   const dias=CV.filter(c=>c.itens.length);
   return `<div class="wrap" style="gap:16px">
@@ -697,16 +712,16 @@ function vCliente(P){
    <div class="row"><button class="sm" data-act="copyResumo">Copiar resumo em imagem (WhatsApp)</button><button class="sm primary" data-act="xlsxCliente">Exportar Excel (resumo + pagamentos)</button></div></div>
    <div id="capResumo" style="display:flex;flex-direction:column;gap:12px;min-width:0"><div class="row" style="gap:12px"><img src="${document.querySelector('.brand img').src}" alt="" style="height:40px"><h2>Resumo da projeção — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}</h2></div>
    <div class="scroll"><table class="proj${S.geral.ocultaTotal?' semtotal':''}"><thead><tr><th></th>${CV.map(c=>`<th>${br(c.d)}<span class="wd">${DN[wd(c.d)]}</span></th>`).join('')}<th>Semana</th></tr></thead><tbody>
-    <tr class="key"><td>Saldo inicial</td>${CV.map(c=>`<td class="${cls(c.ini)}">${fmt(c.ini)}</td>`).join('')}<td class="${cls(C[0].ini)}">${fmt(C[0].ini)}</td></tr>
+    <tr class="key"><td>Saldo inicial</td>${CV.map(c=>`<td class="${cls(c.iniCli)}">${fmt(c.iniCli)}</td>`).join('')}<td class="${cls(C[0].iniCli)}">${fmt(C[0].iniCli)}</td></tr>
     <tr><td>(+) Recebimentos previstos</td>${CV.map(c=>`<td>${fmt(c.recT)}</td>`).join('')}<td>${fmt(rec)}</td></tr>
-    <tr><td>(−) Pagamentos previstos</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr>
-    <tr class="saldo"><td>(=) Saldo final do dia</td>${CV.map(c=>`<td class="${cls(c.fim)}">${fmt(c.fim)}</td>`).join('')}<td class="${cls(C[6].fim)}">${fmt(C[6].fim)}</td></tr>
+    <tr><td>(−) Pagamentos (já pagos + a pagar)</td>${CV.map(c=>`<td>${fmt(c.pagCli)}</td>`).join('')}<td>${fmt(pag)}</td></tr>
+    <tr class="saldo"><td>(=) Saldo final do dia</td>${CV.map(c=>`<td class="${cls(c.fimCli)}">${fmt(c.fimCli)}</td>`).join('')}<td class="${cls(C[6].fimCli)}">${fmt(C[6].fimCli)}</td></tr>
    </tbody></table></div>
-   ${avisoOcultos(C)}<p class="hint">Menor saldo: <b>${brl(min.fim)}</b> em ${DNL[wd(min.d)]}, ${br(min.d)}.</p>
+   ${avisoOcultos(C)}${CV.some(c=>c.aPagarCli!=null)?`<p class="hint">${CV.filter(c=>c.aPagarCli!=null).map(c=>`${DN[wd(c.d)]} ${br(c.d)}: ${brl(c.pagReal)} já pagos + ${brl(c.aPagarCli)} a pagar`).join(' · ')}</p>`:''}<p class="hint">Menor saldo: <b>${brl(min.fimCli)}</b> em ${DNL[wd(min.d)]}, ${br(min.d)}.</p>
    <h3>Pagamentos previstos por grupo</h3>
    <div class="scroll"><table class="proj${S.geral.ocultaTotal?' semtotal':''}"><thead><tr><th>Grupo</th>${CV.map(c=>`<th>${DN[wd(c.d)]}</th>`).join('')}<th>Semana</th></tr></thead><tbody>
    ${gl.map(([g,v])=>`<tr><td>${esc(g)}</td>${v.map((x,i)=>V[i]?`<td class="${cls(x)}">${fmt(x)}</td>`:'').join('')}<td><b>${fmt(v.reduce((a,b)=>a+b,0))}</b></td></tr>`).join('')}
-   <tr class="tot"><td>Total</td>${CV.map(c=>`<td>${fmt(c.pagT)}</td>`).join('')}<td>${fmt(pag)}</td></tr></tbody></table></div>
+   <tr class="tot"><td>Total</td>${CV.map(c=>`<td>${fmt(c.pagCli)}</td>`).join('')}<td>${fmt(pag)}</td></tr></tbody></table></div>
   </div></section>
   <section class="panel"><div class="row" style="justify-content:space-between"><h2>Pagamentos por dia</h2><span class="muted" style="font-size:12px">Maior valor primeiro · inclui contas a pagar, orçado recorrente e lançamentos manuais</span></div>
    ${dias.length?`<div class="days">${dias.map(c=>dayBlock(c,{copy:true})).join('')}</div>`:'<div class="empty">Nenhum pagamento previsto nesta semana.</div>'}
@@ -1172,9 +1187,9 @@ async function xlsxCliente(P){
   if(!window.XLSX){toast('O gerador de Excel não carregou (precisa de internet na primeira abertura). Recarregue a página.');return;}
   const C=P.cols, wb=XLSX.utils.book_new(), oc=ocultos(), V=C.map(c=>!oc.has(wd(c.d))), CV=C.filter((c,i)=>V[i]);
   const r1=[[`Resumo da projeção de caixa — semana de ${brY(UI.semana)} a ${brY(add(UI.semana,6))}`],[],['',...CV.map(c=>`${br(c.d)} ${DN[wd(c.d)]}`),'Semana'],
-    ['Saldo inicial',...CV.map(c=>+c.ini.toFixed(2)),+C[0].ini.toFixed(2)],['(+) Recebimentos previstos',...CV.map(c=>+c.recT.toFixed(2)),+C.reduce((s,c)=>s+c.recT,0).toFixed(2)],
-    ['(−) Pagamentos previstos',...CV.map(c=>+c.pagT.toFixed(2)),+C.reduce((s,c)=>s+c.pagT,0).toFixed(2)],['(=) Saldo final do dia',...CV.map(c=>+c.fim.toFixed(2)),+C[6].fim.toFixed(2)],[],['Pagamentos por grupo']];
-  grupos().forEach(g=>{const v=C.map(c=>c.g[g]||0);if(v.some(x=>x>0.005))r1.push([g,...v.filter((x,i)=>V[i]).map(x=>+x.toFixed(2)),+v.reduce((a,b)=>a+b,0).toFixed(2)]);});
+    ['Saldo inicial',...CV.map(c=>+c.iniCli.toFixed(2)),+C[0].iniCli.toFixed(2)],['(+) Recebimentos previstos',...CV.map(c=>+c.recT.toFixed(2)),+C.reduce((s,c)=>s+c.recT,0).toFixed(2)],
+    ['(−) Pagamentos (já pagos + a pagar)',...CV.map(c=>+c.pagCli.toFixed(2)),+C.reduce((s,c)=>s+c.pagCli,0).toFixed(2)],['(=) Saldo final do dia',...CV.map(c=>+c.fimCli.toFixed(2)),+C[6].fimCli.toFixed(2)],[],['Pagamentos por grupo']];
+  grupos().forEach(g=>{const v=C.map(c=>c.gCli[g]||0);if(v.some(x=>x>0.005))r1.push([g,...v.filter((x,i)=>V[i]).map(x=>+x.toFixed(2)),+v.reduce((a,b)=>a+b,0).toFixed(2)]);});
   if(S.geral.ocultaTotal)r1.forEach((r,i)=>{if(i>=2&&r.length===CV.length+2)r.pop();});
   const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...CV.map(()=>({wch:14})),...(S.geral.ocultaTotal?[]:[{wch:15}])];
   XLSX.utils.book_append_sheet(wb,s1,'Resumo');
