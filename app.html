@@ -362,9 +362,13 @@ function prevBiz(iso,fs){while(!isBizDay(iso,fs))iso=add(iso,-1);return iso;}
 // fornecedores cujas compras já estão no valor fixo de compras da Bahia (orçado recorrente): títulos deles ficam fora da projeção
 const nrmTxt=x=>String(x||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 function fornFixo(part){const p=nrmTxt(part);return (S.geral.fornFixoBahia||[]).some(f=>{const q=nrmTxt(f);return q&&p.includes(q);});}
+// planos de contas que ficam fora da projeção e do realizado (ex.: carretas do Olavo)
+const planoIgn=()=>new Set((Array.isArray(S.geral.planosIgnorados)?S.geral.planosIgnorados:['CARRETAS OLAVO']).map(x=>String(x).toUpperCase().trim()));
+const ignPl=pl=>!!pl&&planoIgn().has(String(pl).toUpperCase().trim());
+function pagosDia(d){let v=+(S.pagos.dias||{})[d]||0;const doc=(S.mov||{})['pag-'+monday(d)];if(doc&&doc.t)Object.entries(doc.t).forEach(([k,x])=>{if(k.slice(k.lastIndexOf('|')+1)===d&&ignPl((doc.p||{})[k]))v-=+x||0;});return Math.round(v*100)/100;}
 function titulos(){
   const keys=Object.keys(S.pagarChunks).filter(k=>+k.slice(1)<(S.pagarMeta.chunks||0)).sort((a,b)=>+a.slice(1)-+b.slice(1));
-  const rows=[];keys.forEach(k=>(S.pagarChunks[k].rows||[]).forEach(r=>rows.push(r)));
+  const rows=[];keys.forEach(k=>(S.pagarChunks[k].rows||[]).forEach(r=>{if(!ignPl(r[5]))rows.push(r);}));
   const fs=feriadoSet(), isent=new Set((S.geral.formasIsentas||[]).map(x=>x.toUpperCase().trim())), dep=S.depara.map||{};
   const sAtual=monday(todayIso()), ini=UI.semana>sAtual?sAtual:UI.semana; // semana futura: atrasados ficam na semana atual
   // pagamentos importados (contas pagas): Ident. do título -> total pago e última data de pagamento
@@ -396,7 +400,7 @@ function recOcorrencias(a,b,tits){
   const fs=feriadoSet(), out=[];
   const excMap={};(S.excecoes.itens||[]).forEach(e=>{if(e.id&&e.prev)excMap[e.id+'|'+e.prev]=e;});
   (S.recorrentes.itens||[]).forEach(it=>{
-    if(!it.id||it.ativo!=='S'||!(+it.valor>0))return;
+    if(!it.id||it.ativo!=='S'||!(+it.valor>0)||ignPl(it.plano))return;
     const datas=[];
     if(it.freq==='Semanal'){const ds=+it.dsem;if(!ds)return;let d=add(a,(ds-wd(a)+7)%7);for(;d<=b;d=add(d,7))datas.push(d);}
     else{const dm=+it.dmes;if(!dm)return;
@@ -426,7 +430,7 @@ function agenda(a,b,semCP){
   const out=[];
   if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id,pago:t.pago||t.pagoSis});});
   recOcorrencias(add(a,-40),add(b,40),tits).forEach(o=>{if(o.data>=a&&o.data<=b)out.push(o);});
-  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor),pg=!!(m.pago&&m.pago.data),dm=pg?m.pago.data:diaPag(m.data,m.forma);if(m.data&&v>0&&!m.excluido&&dm>=a&&dm<=b)out.push({origem:'Lançamento manual',pago:pg,data:dm,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
+  (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor),pg=!!(m.pago&&m.pago.data),dm=pg?m.pago.data:diaPag(m.data,m.forma);if(m.data&&v>0&&!m.excluido&&!ignPl(m.plano)&&dm>=a&&dm<=b)out.push({origem:'Lançamento manual',pago:pg,data:dm,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
   return {itens:out,tits};
 }
 function recRange(){const ks=Object.keys(S.recebidos.dias||{}).sort();return ks.length?[ks[0],ks[ks.length-1]]:null;}
@@ -496,7 +500,7 @@ function projecao(dias,saldoIni,opts){
     const recReal=rr&&d>=rr[0]&&d<=rr[1]?(S.recebidos.dias[d]||0):null;
     const cob=pr&&d>=pr[0]&&d<=pr[1], pm=cob?[]:it.filter(x=>x.pago), pagManT=pm.reduce((s,x)=>s+x.valor,0), pagManG={};
     pm.forEach(x=>{const k=G.includes(x.grupo)?x.grupo:'Outros';pagManG[k]=(pagManG[k]||0)+x.valor;});
-    const pagReal=cob?(S.pagos.dias[d]||0)+0:(pm.length?pagManT:null);
+    const pagReal=cob?pagosDia(d):(pm.length?pagManT:null);
     return {d,ini,recP,ajR,recT,g,ajP,pagT,cp:sum('Contas a pagar'),rec:sum('Orçado recorrente'),man:sum('Lançamento manual'),
       atras:it.filter(x=>x.atras).reduce((s,x)=>s+x.valor,0),mov:recT-pagT,fim:fimProj,
       moverN:it.filter(x=>x.mover).length,moverV:it.filter(x=>x.mover).reduce((s,x)=>s+x.valor,0),
@@ -535,7 +539,7 @@ const SEM_GRUPO='Sem grupo identificado (importação antiga — reimporte as co
 // pagamentos realizados do dia por grupo (pelo plano de contas guardado na importação das contas pagas)
 function pagRealGrupos(d){
   const doc=(S.mov||{})['pag-'+monday(d)];if(!doc||!doc.t)return null;const dep=S.depara.map||{},out={};let tem=false;
-  Object.entries(doc.t).forEach(([k,v])=>{if(k.slice(k.lastIndexOf('|')+1)!==d)return;tem=true;const pl=((doc.p||{})[k]||'').toUpperCase().trim();
+  Object.entries(doc.t).forEach(([k,v])=>{if(k.slice(k.lastIndexOf('|')+1)!==d)return;tem=true;const pl=((doc.p||{})[k]||'').toUpperCase().trim();if(ignPl(pl))return;
     const g=pl?(dep[pl]||'Outros'):SEM_GRUPO;out[g]=(out[g]||0)+(+v||0);});
   return tem?out:null;
 }
@@ -637,7 +641,7 @@ function vDiferencas(P){
   if(fechado)return `<section class="panel">${cab}</section>`;
   const D=new Set(dias.map(c=>c.d)), nomes={};(P.tits||[]).forEach(t=>{nomes[t.id]=t.part;});
   // pagamentos importados (todas as semanas) por Ident.
-  const pagos={};Object.keys(S.mov||{}).forEach(k=>{if(!k.startsWith('pag-'))return;const doc=S.mov[k]||{};Object.entries(doc.t||{}).forEach(([key,v])=>{const j=key.lastIndexOf('|'),i=key.slice(0,j),d=key.slice(j+1);(pagos[i]=pagos[i]||[]).push({d,v:+v||0,pl:((doc.p||{})[key]||'')});});});
+  const pagos={};Object.keys(S.mov||{}).forEach(k=>{if(!k.startsWith('pag-'))return;const doc=S.mov[k]||{};Object.entries(doc.t||{}).forEach(([key,v])=>{if(ignPl((doc.p||{})[key]))return;const j=key.lastIndexOf('|'),i=key.slice(0,j),d=key.slice(j+1);(pagos[i]=pagos[i]||[]).push({d,v:+v||0,pl:((doc.p||{})[key]||'')});});});
   const dep=S.depara.map||{}, grp=pl=>{const k=String(pl||'').toUpperCase().trim();return k?(dep[k]||'Outros'):'Sem grupo';};
   // 1) totais
   const oP=dias.reduce((s,c)=>s+c.pagT,0), rP=dias.reduce((s,c)=>s+(c.pagReal||0),0);
