@@ -374,7 +374,7 @@ function titulos(){
   // pagamentos importados (contas pagas): Ident. do título -> total pago e última data de pagamento
   const pagIdx={};Object.keys(S.mov||{}).forEach(k=>{if(!k.startsWith('pag-'))return;const t=(S.mov[k]||{}).t||{};for(const key in t){const j=key.lastIndexOf('|'),i=key.slice(0,j),d=key.slice(j+1);const o=pagIdx[i]||(pagIdx[i]={v:0,d:''});o.v+=+t[key]||0;if(d>o.d)o.d=d;}});
   return rows.map(r=>{
-    let [id,part,venc,valorSis,forma,plano,sit,estab,baixa,pgDt]=r; const pi=pagIdx[id]; if(pi&&pi.v>=(+valorSis||0)-0.01){sit='Pago';pgDt=pgDt||pi.d;} // já consta nas contas pagas
+    let [id,part,venc,valorSis,forma,plano,sit,estab,baixa,pgDt,emi]=r; const pi=pagIdx[id]; if(pi&&pi.v>=(+valorSis||0)-0.01){sit='Pago';pgDt=pgDt||pi.d;} // já consta nas contas pagas
     const pagoSis=sit==='Pago', baixado=baixa==='BAIXADO'||pagoSis; // pago na planilha: fica no orçado do dia, sai dos títulos a pagar
     const aj=(S.ajustes.map||{})[id]; const excl=!!(aj&&aj.excluido);
     const valAlt=!!(aj&&aj.valor!=null&&aj.valorSis===valorSis), valor=valAlt?+aj.valor:valorSis;
@@ -393,7 +393,7 @@ function titulos(){
     const atras=considera&&!pago&&!baixado&&dataCons<ini;
     const ant=add(dataCons,-Math.min((w-2+7)%7,(w-5+7)%7)), seg=add(dataCons,Math.min((2-w+7)%7,(5-w+7)%7));
     return {id,part,venc,valor,valorOrig:valorSis,valAlt,pago:!!pago,pagoSis,fixo,baixado,forma,plano,sit,aj:aj&&aj.data&&!pago?aj:null,excl,dataCons,motivo,considera,mover,atras,ant,seg,
-      grupo:dep[(plano||'').toUpperCase().trim()]||'Outros',agenda:atras?ini:dataCons};
+      grupo:dep[(plano||'').toUpperCase().trim()]||'Outros',agenda:atras?ini:dataCons,emi:emi||null};
   });
 }
 function recOcorrencias(a,b,tits){
@@ -428,7 +428,7 @@ function recOcorrencias(a,b,tits){
 function agenda(a,b,semCP){
   const tits=titulos();
   const out=[];
-  if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id,pago:t.pago||t.pagoSis});});
+  if(!semCP)tits.forEach(t=>{if(t.considera&&t.agenda>=a&&t.agenda<=b)out.push({origem:'Contas a pagar',data:t.agenda,emi:t.emi,desc:t.part,valor:t.valor,forma:t.forma,plano:t.plano,grupo:t.grupo,mover:t.mover,atras:t.atras,ident:t.id,pago:t.pago||t.pagoSis});});
   recOcorrencias(add(a,-40),add(b,40),tits).forEach(o=>{if(o.data>=a&&o.data<=b)out.push(o);});
   (S.manuais.itens||[]).forEach(m=>{const v=pnum(m.valor),pg=!!(m.pago&&m.pago.data),dm=pg?m.pago.data:diaPag(m.data,m.forma);if(m.data&&v>0&&!m.excluido&&!ignPl(m.plano)&&dm>=a&&dm<=b)out.push({origem:'Lançamento manual',pago:pg,data:dm,desc:m.desc||'(sem descrição)',valor:v,forma:(m.forma||'').toUpperCase(),plano:m.plano||'',grupo:m.grupo||'Outros'});});
   return {itens:out,tits};
@@ -608,8 +608,8 @@ function kpis(P){
 function dayBlock(c,opts){
   const it=c.itens;
   return `<div class="day" data-day="${c.d}"><div class="dh"><b>Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})</b><span class="row" style="gap:8px">${brl(c.pagT-(+(S.geral.ajPag||{})[c.d]||0))}${opts&&opts.copy?`<button class="sm" data-noprint data-act="copyDia" data-d="${c.d}" style="padding:2px 10px;background:#fff;color:var(--accent);border-color:#fff">Copiar imagem</button>`:''}</span></div>
-  ${it.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Data</th><th class="txt">Participante</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th>${opts&&opts.marks?'<th class="txt"></th>':''}</tr></thead><tbody>
-  ${it.map(x=>`<tr class="${opts&&opts.marks&&x.mover?'mover':''}"><td class="txt">${brY(x.data)}</td><td class="txt">${esc(x.desc)}</td><td>${fmt(x.valor)}</td><td class="txt">${esc(x.forma)}</td><td class="txt">${esc(x.plano)}</td>${opts&&opts.marks?`<td class="txt">${x.mover?'<span class="pill mover">mover</span>':''}${x.atras?' <span class="pill atras">atrasado</span>':''}${x.origem==='Orçado recorrente'?' <span class="pill ok">orçado</span>':''}${x.origem==='Lançamento manual'?' <span class="pill ok">manual</span>':''}</td>`:''}</tr>`).join('')}
+  ${it.length?`<div class="scroll"><table class="list"><thead><tr><th class="txt">Data</th><th class="txt">Emissão</th><th class="txt">Participante</th><th>Valor</th><th class="txt">Forma</th><th class="txt">Plano de conta</th>${opts&&opts.marks?'<th class="txt"></th>':''}</tr></thead><tbody>
+  ${it.map(x=>`<tr class="${opts&&opts.marks&&x.mover?'mover':''}"><td class="txt">${brY(x.data)}</td><td class="txt">${x.emi?brY(x.emi):'–'}</td><td class="txt">${esc(x.desc)}</td><td>${fmt(x.valor)}</td><td class="txt">${esc(x.forma)}</td><td class="txt">${esc(x.plano)}</td>${opts&&opts.marks?`<td class="txt">${x.mover?'<span class="pill mover">mover</span>':''}${x.atras?' <span class="pill atras">atrasado</span>':''}${x.origem==='Orçado recorrente'?' <span class="pill ok">orçado</span>':''}${x.origem==='Lançamento manual'?' <span class="pill ok">manual</span>':''}</td>`:''}</tr>`).join('')}
   </tbody></table></div>`:'<div class="empty">Sem pagamentos neste dia.</div>'}</div>`;
 }
 function partidaPanel(){
@@ -993,11 +993,12 @@ async function importar(files){
         out.push(`<span class="ok">✓ ${esc(file.name)}: ${isRec?'contas recebidas':'contas pagas'} de ${brY(de)} a ${brY(ate)} · ${r.novas} movimentação(ões) nova(s)${r.repetidas?`, ${r.repetidas} já existiam e não foram duplicadas`:''}</span>`);
       }else{
         const rows=[];
+        const ciEmi=H.findIndex(h=>/emiss/i.test(h.normalize('NFD').replace(/[\u0300-\u036f]/g,''))); // Emissão / Data Emissão / Dt. Emissão
         data.forEach(r=>{const id=String(get(r,'Ident.')).trim();if(!id)return;const venc=toIso(get(r,'Vencimento'));if(!venc)return;
           const sitR=String(get(r,'Situação')).trim(), pgDt=toIso(get(r,'Pagamento'));
           let v=pnum(get(r,'Saldo'));if(isNaN(v))v=pnum(get(r,'Total'));if(isNaN(v))v=pnum(get(r,'Valor'));
           if(sitR==='Pago'||((!v||v<=0)&&pgDt)){let vp=pnum(get(r,'Pago'));if(isNaN(vp)||vp<=0)vp=pnum(get(r,'Total'));if(isNaN(vp)||vp<=0)vp=pnum(get(r,'Valor'));if(!isNaN(vp)&&vp>0)v=vp;} // título pago: o saldo vem zerado, vale o valor pago
-          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),sitR,String(get(r,'Estabelecimento')).trim()||('arquivo:'+file.name),null,pgDt||null]);});
+          rows.push([id,String(get(r,'Participante')).trim(),venc,Math.round((v||0)*100)/100,String(get(r,'Forma Pagamento')).toUpperCase().trim(),String(get(r,'Plano Conta')).trim(),sitR,String(get(r,'Estabelecimento')).trim()||('arquivo:'+file.name),null,pgDt||null,ciEmi>=0?toIso(r[ciEmi]):null]);});
         if(!rows.length)throw new Error('nenhum título com Ident. e vencimento');
         // substitui só os títulos do(s) mesmo(s) estabelecimento(s) do arquivo; no mesmo envio, os arquivos se somam; Ident. repetido entra uma vez
         const est=new Set(rows.map(r=>r[7]));
@@ -1008,7 +1009,7 @@ async function importar(files){
         atuais.filter(r=>r[7]&&est.has(r[7])&&!lote.estabs.has(r[7])&&!novos.has(r[0])).forEach(r=>{
           const dt=((S.ajustes.map||{})[r[0]]||{}).data||r[2];
           if(r[8]==='BAIXADO'){if(r[2]>=corte)mantem.push(r);return;}
-          if(dt<hojeI&&r[2]>=corte){const x=r.slice(0,8);x[8]='BAIXADO';mantem.push(x);baix++;}});
+          if(dt<hojeI&&r[2]>=corte){const x=r.slice(0,8);x[8]='BAIXADO';x[9]=null;x[10]=r[10]||null;mantem.push(x);baix++;}});
         const M=new Map();let rep=0;mantem.forEach(r=>M.set(r[0],r));rows.forEach(r=>{if(M.has(r[0]))rep++;M.set(r[0],r);});
         est.forEach(e=>lote.estabs.add(e));
         const all=[...M.values()];
@@ -1160,7 +1161,7 @@ function textoResumo(P){
   L.push('',`Total recebimentos: ${brl(rec)}`,`Total pagamentos: ${brl(pag)}`,`Saldo final: ${brl(C[6].fim)}`,`Menor saldo: ${brl(min.fim)} (${DN[wd(min.d)]} ${br(min.d)})`);
   return L.join('\n');
 }
-function textoDia(c){return [`*Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})* — ${brl(c.itens.reduce((s,x)=>s+x.valor,0))}`,...c.itens.map(x=>`${x.desc} — ${brl(x.valor)} — ${x.forma}`)].join('\n');}
+function textoDia(c){return [`*Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})* — ${brl(c.itens.reduce((s,x)=>s+x.valor,0))}`,...c.itens.map(x=>`${x.desc} — ${brl(x.valor)} — ${x.forma}${x.emi?' — emissão '+brY(x.emi):''}`)].join('\n');}
 async function copiar(t){try{await navigator.clipboard.writeText(t);toast('Copiado');}catch(e){const ta=document.createElement('textarea');ta.value=t;ta.style.cssText='width:100%;height:160px';const v=$('#view');v.prepend(ta);ta.select();toast('Selecionado — use Ctrl+C para copiar');}}
 async function baixarArquivo(nome,blob){
   const dl=await use('downloads');
@@ -1178,16 +1179,17 @@ async function xlsxCliente(P){
   if(S.geral.ocultaTotal)r1.forEach((r,i)=>{if(i>=2&&r.length===CV.length+2)r.pop();});
   const s1=XLSX.utils.aoa_to_sheet(r1);s1['!cols']=[{wch:30},...CV.map(()=>({wch:14})),...(S.geral.ocultaTotal?[]:[{wch:15}])];
   XLSX.utils.book_append_sheet(wb,s1,'Resumo');
-  // lista no formato do exemplo: blocos de 5 colunas lado a lado, 4 por faixa
+  // lista no formato do exemplo: blocos de 6 colunas (com a emissão da nota) lado a lado, 4 por faixa
   const dias=CV.filter(c=>c.itens.length), aoa=[], merges=[];let top=1;
   for(let b=0;b<dias.length;b+=4){const band=dias.slice(b,b+4);const h=Math.max(...band.map(c=>c.itens.length));
-    band.forEach((c,j)=>{const c0=1+j*6;(aoa[top]=aoa[top]||[])[c0]=`Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})`;merges.push({s:{r:top,c:c0},e:{r:top,c:c0+4}});
-      c.itens.forEach((x,k)=>{const r=top+1+k;aoa[r]=aoa[r]||[];aoa[r][c0]=D(x.data);aoa[r][c0+1]=x.desc;aoa[r][c0+2]=+x.valor.toFixed(2);aoa[r][c0+3]=x.forma;aoa[r][c0+4]=x.plano;});
-      const rt=top+1+h;aoa[rt]=aoa[rt]||[];aoa[rt][c0+1]='TOTAL';aoa[rt][c0+2]=+c.itens.reduce((s,x)=>s+x.valor,0).toFixed(2);});
-    top+=h+4;}
+    band.forEach((c,j)=>{const c0=1+j*7;(aoa[top]=aoa[top]||[])[c0]=`Pagamentos Dia ${br(c.d)} (${DNL[wd(c.d)]})`;merges.push({s:{r:top,c:c0},e:{r:top,c:c0+5}});
+      (aoa[top+1]=aoa[top+1]||[]);['Data','Emissão','Participante','Valor','Forma','Plano de conta'].forEach((t,q)=>aoa[top+1][c0+q]=t);
+      c.itens.forEach((x,k)=>{const r=top+2+k;aoa[r]=aoa[r]||[];aoa[r][c0]=D(x.data);aoa[r][c0+1]=x.emi?D(x.emi):'';aoa[r][c0+2]=x.desc;aoa[r][c0+3]=+x.valor.toFixed(2);aoa[r][c0+4]=x.forma;aoa[r][c0+5]=x.plano;});
+      const rt=top+2+h;aoa[rt]=aoa[rt]||[];aoa[rt][c0+2]='TOTAL';aoa[rt][c0+3]=+c.itens.reduce((s,x)=>s+x.valor,0).toFixed(2);});
+    top+=h+5;}
   for(let i=0;i<aoa.length;i++)aoa[i]=aoa[i]||[];
   const s2=XLSX.utils.aoa_to_sheet(aoa,{cellDates:true,dateNF:'dd/mm/yyyy'});s2['!merges']=merges;
-  s2['!cols']=Array.from({length:24},(_,i)=>({wch:[2,11,40,13,16,30][i%6]}));
+  s2['!cols']=Array.from({length:29},(_,i)=>({wch:[2,11,11,40,13,16,30][i%7]}));
   Object.keys(s2).forEach(k=>{const c=s2[k];if(k[0]==='!')return;if(c.t==='n'&&typeof c.v==='number')c.z='#,##0.00';if(c.t==='d')c.z='dd/mm/yyyy';});
   XLSX.utils.book_append_sheet(wb,s2,'Pagamentos');
   const data=XLSX.write(wb,{type:'array',bookType:'xlsx'});
